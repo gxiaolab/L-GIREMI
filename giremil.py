@@ -12,7 +12,7 @@ from sklearn.model_selection import train_test_split
 from functools import partial
 from collections import defaultdict
 
-__version__='0.1.0'
+__version__='0.1.1'
 
 base_to_number = {"A":1, "C":2, "G":3, "T":4, "N":5}
 number_to_base = dict((v, k) for k, v in base_to_number.items())
@@ -61,10 +61,27 @@ cslenfuncs = {
     '~': lambda x: int(re.sub('[a-z]', '', x))
 }
 
+def cs_to_df(cs_string, pos):
+    cs = split_cs_string(cs_string)
+    cslist = list()
+    for a, b in cs:
+        low = pos
+        pos += cslenfuncs[a](b)
+        high = pos
+        cslist.append([low, high, a, b])
+    csdf = pd.DataFrame(
+        np.row_stack(cslist),
+        columns=['low', 'high', 'ope', 'val']
+    )
+    csdf.loc[:,'low'] = csdf['low'].astype(int)
+    csdf.loc[:,'high'] = csdf['high'].astype(int)
+    return csdf
 
 def get_mismatch_from_cs(bam_file, chrom,
                          mapq_threshold = 20,
-                         min_allele_count=2):
+                         min_allele_count=2,
+                         drop_non_spliced_read=True,
+                         min_dist_from_splice=4):
     """
     Obtain mismatch coordinates from the cs tags in the bam file
     """
@@ -72,24 +89,43 @@ def get_mismatch_from_cs(bam_file, chrom,
     sam = pysam.AlignmentFile(bam_file, 'rb')
 
     for read in sam.fetch(chrom):
-        chrom = read.reference_name
-
         if read.mapq < mapq_threshold:
                 continue
         elif read.is_secondary: ### skip secondary reads
                 continue
         # 0 based
         pos = read.reference_start
-
-        cs = split_cs_string(read.get_tag('cs'))
-        for cs_symbol, cs_value in cs:
-            if cs_symbol == "*":
-                REF, ALT = cs_value.upper()
-                try:
-                    mm_dict[(chrom, pos, REF)][ALT] += 1
-                except:
-                    mm_dict[(chrom, pos, REF)][ALT] = 1
-            pos += cslenfuncs[cs_symbol](cs_value)
+        cs = cs_to_df(read.get_tag('cs'), pos)
+        cs_splice = cs.loc[cs['ope']=='~']
+        cs_mismatch = cs.loc[cs['ope']=='*']
+        if drop_non_spliced_read:
+            if cs_splice.shape[0] == 0:
+                continue
+        if cs_mismatch.shape[0] > 0:
+            if cs_splice.shape[0] > 0:
+                select_idx = ~cs_mismatch['low'].map(
+                    lambda a: np.logical_and(
+                        (cs_splice['low'] - min_dist_from_splice) <= a,
+                        (cs_splice['low'] + min_dist_from_splice) >= a
+                    ).append(
+                        np.logical_and(
+                            (cs_splice['high'] - min_dist_from_splice) <= a,
+                            (cs_splice['high'] + min_dist_from_splice) >= a
+                        )
+                    ).any()
+                )
+            else:
+                select_idx = cs_mismatch['low'] > -1
+            if select_idx.any():
+                for ri, row in cs_mismatch.loc[
+                        select_idx, ['low', 'val']
+                ].iterrows():
+                    pos = int(row['low'])
+                    REF, ALT = row['val'].upper()
+                    try:
+                        mm_dict[(chrom, pos, REF)][ALT] += 1
+                    except:
+                        mm_dict[(chrom, pos, REF)][ALT] = 1
     arr_chrom = list()
     arr_pos = list()
     arr_ref = list()
@@ -170,21 +206,6 @@ def mark_mismatch_dbsnp(snp_file, mismatch_df, chrom):
     mismatch_df.loc[:,'snp'] = mismatch_df['pos'].map(snp_dict)
     vcf.close()
     return mismatch_df
-
-
-def cs_to_df(cs_string, pos):
-    cs = split_cs_string(cs_string)
-    cslist = list()
-    for a, b in cs:
-        low = pos
-        pos += cslenfuncs[a](b)
-        high = pos
-        cslist.append([low, high, a, b])
-    csdf = pd.DataFrame(
-        np.row_stack(cslist),
-        columns=['low', 'high', 'ope', 'val']
-    )
-    return csdf
 
 
 def get_gtf_gene_strand(gtf, low, high, padding=500):
@@ -722,7 +743,10 @@ def chrom_calculation(chrom, variables):
     df = get_mismatch_from_cs(
         variables['bam_file'], chrom,
         mapq_threshold=variables['mapq_threshold'],
-        min_allele_count=variables['min_allele_count'])
+        min_allele_count=variables['min_allele_count'],
+        drop_non_spliced_read=variables['drop_non_spliced_read'],
+        min_dist_from_splice=variables['min_dist_from_splice']
+    )
     df = filter_mismatch_homopoly(
         variables['genome_file'], df, chrom,
         homopoly_length=variables['homopoly_length'])
@@ -941,6 +965,18 @@ if __name__ == '__main__':
         default=2
     )
     parser.add_argument(
+        "--drop_non_spliced_read",
+        help = "Drop non spliced reads (default: True)",
+        type=bool,
+        default=True
+    )
+    parser.add_argument(
+        "--min_dist_from_splice",
+        help = "Drop sites within the distance from splice junctions (default: 4)",
+        type=int,
+        default=4
+    )
+    parser.add_argument(
         "--gene_padding",
         help = "expand the range when searching gene gtf (default: 500)",
         type=int,
@@ -1012,6 +1048,8 @@ if __name__ == '__main__':
     variables = {
         'mapq_threshold': args.mapq_threshold,
         'min_allele_count': args.min_allele_count,
+        'drop_non_spliced_read': args.drop_non_spliced_read,
+        'min_dist_from_splice': args.min_dist_from_splice,
         'gene_padding': args.gene_padding,
         'exon_padding': args.exon_padding,
         'min_rc_cov': args.min_rc_cov,

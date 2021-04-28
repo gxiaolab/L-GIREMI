@@ -52,6 +52,10 @@ optional arguments:
                         Min MAPQ to be considered in bam file (default: 20)
   --min_allele_count MIN_ALLELE_COUNT
                         Min allele read count (default: 2)
+  --drop_non_spliced_read DROP_NON_SPLICED_READ
+                        Drop non spliced reads (default: True)
+  --min_dist_from_splice MIN_DIST_FROM_SPLICE
+                        Drop sites within the distance from splice junctions (default: 4)
   --gene_padding GENE_PADDING
                         expand the range when searching gene gtf (default: 500)
   --exon_padding EXON_PADDING
@@ -180,3 +184,8 @@ giremil.py \
   7. up_seq: a 5' nucleotide ahead of the mismatch sites.
   8. down_seq: a 3' nucleotide after the mismatch sites.
   9. score: RNA editing score by the GLM model.
+
+## Reference
+
+* Zhang, Q., and Xiao, X. (2015). Genome sequence–independent
+  identification of RNA editing sites. Nat Methods 12, 347–350.
