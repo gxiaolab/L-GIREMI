@@ -169,7 +169,9 @@ giremil.py \
   3. pos: position on the chromosome, 0-based.
   4. strand: strand of the mismatch sites.
   5. change_type: the mismatch type, [ref]>[alt].
-  6. ratio: the mismatch ratio.
+  6. read_count: the read count for the mismatch.
+  7. depth: the total read count for the site.
+  8. ratio: the mismatch ratio, read_count/depth.
 * mismatch score file: one file for the analysis, and is stored as
   `$OUTPREFIX.score`.
   columns:

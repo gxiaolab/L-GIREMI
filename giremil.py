@@ -12,7 +12,7 @@ from sklearn.model_selection import train_test_split
 from functools import partial
 from collections import defaultdict
 
-__version__='0.1.1'
+__version__='0.1.2'
 
 base_to_number = {"A":1, "C":2, "G":3, "T":4, "N":5}
 number_to_base = dict((v, k) for k, v in base_to_number.items())
@@ -586,7 +586,7 @@ def variant_filter(mm_info, chrom,
 
         DP = sum(len(v) for v in allele_counts.values())
 
-        the_ratio = defaultdict(float)
+        the_ratio = defaultdict(list)
         het = 'mismatch'
         for base, read_list in list(allele_counts.items()):
             AC = len(read_list)
@@ -599,7 +599,7 @@ def variant_filter(mm_info, chrom,
                 allele_counts.pop(base)
             if AB >= min_het_snp_ratio and AB <= max_het_snp_ratio and ISSNP == 1:
                 het = "het_snp"
-            the_ratio[base] = AB
+            the_ratio[base] = [AC, DP, AB]
 
         ### If only one allele is left at this position (including the REF)
         ### then discard this position.
@@ -781,7 +781,10 @@ def chrom_calculation(chrom, variables):
             min_het_snp_ratio=variables['min_het_snp_ratio'],
             max_het_snp_ratio=variables['max_het_snp_ratio'])
         mm_info_list.extend(
-            ['{0}:{1}'.format(x, ratio_dict[x])
+            ['{0}:{1}:{2}:{3}'.format(
+                x, ratio_dict[x][0],
+                ratio_dict[x][1], ratio_dict[x][2]
+             )
              for x in mm_info]
         )
         min_n = min(variables['mi_testable_common_reads'], RC_cov)
@@ -798,7 +801,8 @@ def chrom_calculation(chrom, variables):
         [x.split(':') for x in mm_info_list],
         columns=['type',
                  'chromosome', 'pos', 'strand',
-                 'change_type', 'ratio']
+                 'change_type',
+                 'read_count', 'depth', 'ratio']
     )
     outfile_mm = variables['outprefix'] + '.' + chrom + '.mismatch_ratio'
     mm_info_df.to_csv(outfile_mm, sep='\t', index=False)
@@ -895,7 +899,7 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         "-b", "--bam_file",
-        help="input bam file, sorted and indexed",
+        help="input bam file, with cs tags, sorted and indexed",
         type=str,
         default=None,
         required=True
