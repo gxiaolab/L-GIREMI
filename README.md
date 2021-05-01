@@ -16,7 +16,70 @@ several python packages.
 
 And the analysis with GIREMIL also needs additional software:
 * [samtools](http://www.htslib.org)
+* [bcftools](http://www.htslib.org)
+* [bgzip](http://www.htslib.org)
+* [tabix](http://www.htslib.org)
 * [minimap2](https://github.com/lh3/minimap2)
+
+### Reference data
+
+Be aware to use reference files with same assembly version and the
+same chromosome name pattern in all the process.
+
+#### Genome fasta file
+
+The GIREMIL requires a genome fasta file as input. For human genome,
+the fasta file can be obtained from
+[UCSC](https://hgdownload.cse.ucsc.edu/goldenpath/hg38/chromosomes/)
+or [NCBI](https://www.ncbi.nlm.nih.gov/genome/guide/human/). The fasta
+file should include sequences from all the chromosomes.
+
+#### SNP vcf file
+
+The GIREMIL will use SNP vcf file to get putative heterozygous
+SNPs. dbSNP vcf are a possible reference. And it's even better to use
+sample specific SNP vcf files. The vcf files should be converted into
+bcf format, sorted, and indexed.
+
+The following is a example to convert the dbSNP chromosomes into UCSC chromosomes.
+
+```{bash}
+wget "https://ftp.ncbi.nih.gov/snp/latest_release/VCF/GCF_000001405.38.gz"
+
+wget "https://ftp.ncbi.nih.gov/snp/latest_release/VCF/GCF_000001405.38.gz.md5"
+
+md5sum -c GCF_000001405.38.gz.md5
+
+wget "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.28_GRCh38.p13/GCA_000001405.28_GRCh38.p13_assembly_report.txt"
+
+egrep -v "^#" GCA_000001405.28_GRCh38.p13_assembly_report.txt | cut -f 7,10 | tr "\t" " " > GRCh38-to-hg38.map
+
+bcftools annotate --rename-chrs GRCh38-to-hg38.map GCF_000001405.38.gz -Ob -o dbsnp.38.hg38.bcf
+
+bcftools index dbsnp.38.hg38.bcf
+```
+
+#### Gene annotation gtf
+
+A gene annotation gtf is required for the GIREMIL, which can be
+obtained from [gencode](https://www.gencodegenes.org/human/). The gtf
+file should be sorted, zipped, and indexed.
+
+The following are codes for gtf file preparation:
+```{bash}
+(grep ^"#" gencode.v37.annotation.gtf; \
+    grep -v ^"#" gencode.v37.annotation.gtf | \
+    sort -k1,1 -k4,4n) | \
+    bgzip > gencode.v37.annotation.sorted.gtf.gz
+
+tabix -p gff gencode.v37.annotation.sorted.gtf.gz
+```
+
+#### Simple repeat region table
+
+The simple repeat region table is used by GIREMIL to filter sites. It
+can be obtained from [UCSC table browser](http://genome.ucsc.edu/cgi-bin/hgTables). The table format
+should be: chromosome, start, end. No header needed for the file.
 
 ## Usage
 
