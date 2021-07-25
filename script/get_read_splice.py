@@ -42,8 +42,8 @@ def cs_to_df(cs_string, pos):
     return csdf
 
 
-def get_read_mismatch_from_bam(bam_file, chrom,
-                               mapq_threshold = 20):
+def get_read_splice_from_bam(bam_file, chrom,
+                             mapq_threshold = 20):
     """
     Obtain mismatch coordinates from the cs tags in the bam file
     """
@@ -59,15 +59,20 @@ def get_read_mismatch_from_bam(bam_file, chrom,
         cs = cs_to_df(read.get_tag('cs'), pos)
         cs_splice = cs.loc[cs['ope']=='~']
         cs_mismatch = cs.loc[cs['ope']=='*']
-        for ri, row in cs_mismatch.iterrows():
-            pos = int(row['low'])
-            REF, ALT = row['val'].upper()
-            yield [read.query_name, chrom, pos, REF, ALT]
+        for ri, row in cs_splice.iterrows():
+            for x in ['low', 'high']:
+                if x == 'low':
+                    postype = 'intron_left'
+                else:
+                    postype = 'intron_right'
+                pos = int(row[x])
+                yield [read.query_name,
+                       chrom, pos, postype]
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description="Get read and mismatch site information from bam file"
+        description="Get read and splice sites from bam file"
     )
     parser.add_argument(
         "-b", "--bam_file",
@@ -102,20 +107,27 @@ if __name__ == '__main__':
     )
     args = parser.parse_args()
 
+    outfile = open('.'.join([args.output_prefix, 'read_splice']), 'w')
+    outfile.write(
+        '\t'.join([
+            'read_name', 'chromosome',
+            'pos', 'type'
+        ]) + '\n'
+    )
     for chrom in args.chromosomes:
-        outfile = open('.'.join([args.output_prefix, chrom, 'read_mismatch']), 'w')
-        outfile.write(
-            '\t'.join([
-                'read_name', 'chromosome',
-                'pos', 'ref', 'alt'
-            ]) + '\n'
-        )
-        read_mismatches = get_read_mismatch_from_bam(
+        lines = []
+        read_splice = get_read_splice_from_bam(
             args.bam_file, chrom,
             mapq_threshold = args.mapq_threshold
         )
-        for r_m in read_mismatches:
-            outfile.write(
-                '\t'.join([str(a) for a in r_m]) + '\n'
+        for r_m in read_splice:
+            lines.append(
+                '\t'.join([str(a) for a in r_m]) +
+                '\n'
             )
-        outfile.close()
+            if len(lines) > 10000:
+                outfile.writelines(lines)
+                lines = []
+        outfile.writelines(lines)
+
+    outfile.close()

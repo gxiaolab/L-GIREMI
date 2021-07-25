@@ -6,13 +6,14 @@ import pysam
 import pandas as pd
 import numpy as np
 import multiprocessing as mp
+import scipy.stats as stats
 from sklearn.metrics import mutual_info_score, roc_curve, auc
 from sklearn import linear_model
 from sklearn.model_selection import train_test_split
 from functools import partial
 from collections import defaultdict
 
-__version__='0.1.2'
+__version__='0.1.3'
 
 base_to_number = {"A":1, "C":2, "G":3, "T":4, "N":5}
 number_to_base = dict((v, k) for k, v in base_to_number.items())
@@ -42,6 +43,29 @@ def binary_search(lista, val):
         return median - 1
     else:
         return median
+
+
+def ecdf(x):
+    '''Calculate the empirical cumulative density function
+       ====================
+       Return a cumulative density function based
+       on the input data.
+
+    '''
+    x = np.array(x)
+    x.sort()
+    n = len(x)
+    y = np.concatenate([[0], np.linspace(1/n, 1, n)])
+
+    def childfunc(sample, x, y, sorted=True):
+        if not sorted:
+            asort = np.argsort(x)
+            x = np.take(x, asort, 0)
+            y = np.take(y, asort, 0)
+        idx = np.searchsorted(x, sample)
+        return y[idx]
+
+    return partial(childfunc, x=x, y=y)
 
 
 def split_cs_string(cs_string):
@@ -587,7 +611,10 @@ def variant_filter(mm_info, chrom,
         DP = sum(len(v) for v in allele_counts.values())
 
         the_ratio = defaultdict(list)
-        het = 'mismatch'
+        if ISSNP == 1:
+            mismatch_type = 'snp'
+        else:
+            mismatch_type = 'mismatch'
         for base, read_list in list(allele_counts.items()):
             AC = len(read_list)
             AB = AC/DP
@@ -597,10 +624,10 @@ def variant_filter(mm_info, chrom,
                 for read in read_list:
                     mm_info[(POS, REF, STRAND, ISSNP)].pop(read)
                 allele_counts.pop(base)
-            if AB >= min_het_snp_ratio and AB <= max_het_snp_ratio and ISSNP == 1:
-                het = "het_snp"
+            if mismatch_type == 'snp':
+                if (AB >= min_het_snp_ratio) and (AB <= max_het_snp_ratio):
+                    mismatch_type = 'het_snp'
             the_ratio[base] = [AC, DP, AB]
-
         ### If only one allele is left at this position (including the REF)
         ### then discard this position.
         ### For the retained SNVs, change dictionary key format
@@ -611,7 +638,7 @@ def variant_filter(mm_info, chrom,
             ALTS = [base for base in allele_counts if base != REF]
             for ALT in ALTS:
                 variant_id = "{}:{}:{}:{}:{}>{}".format(
-                    het, chrom, POS, STRAND, REF, ALT
+                    mismatch_type, chrom, POS, STRAND, REF, ALT
                 )
                 mm_info_result[variant_id] = coord
                 ratio_dict[variant_id] = the_ratio[ALT]
@@ -702,6 +729,79 @@ def format_mi_output_file(mi_info):
     return output_lines
 
 
+def diff_of_allelic_ratio(mm_ratio_df, gtf_file, chrom, default_ratio = 0.5):
+
+    """
+    Calculate the difference between editing ratio and gene allelic ratio (mean heterozygous SNP ratio)
+    """
+    gtf = pysam.TabixFile(gtf_file)
+
+    mm_ratio_df = mm_ratio_df.loc[
+        mm_ratio_df['chromosome'] == chrom
+    ]
+    mm_ratio_df.loc[:, 'mmidx'] = mm_ratio_df.apply(
+        lambda x: '{}:{}:{}:{}:{}'.format(
+            x['type'], x['chromosome'], x['pos'],
+            x['strand'], x['change_type']
+        ),
+        axis = 1
+    )
+    mm_gene = defaultdict(lambda : "Not_found")
+    gene_het_snp_ratio = defaultdict(list)
+
+    for ri, row in mm_ratio_df.iterrows():
+        gtf_list = list()
+        for gtf_entry in gtf.fetch(
+                chrom,
+                row['pos'] - 10,
+                row['pos'] + 10,
+                parser=pysam.asGTF()):
+            gtf_list.append(
+                [gtf_entry.feature,
+                 gtf_entry.gene_name,
+                 gtf_entry.start, gtf_entry.end,
+                 gtf_entry.strand]
+            )
+        if len(gtf_list) > 0:
+            gtf_df = pd.DataFrame.from_records(
+                gtf_list,
+                columns=['feature', 'gene_name',
+                         'low', 'high', 'strand']
+            )
+            try:
+                gene_name = gtf_df.loc[
+                    (gtf_df['feature'] == 'gene') & (
+                        gtf_df['strand'] == row['strand']
+                    ),
+                    'gene_name'
+                ].unique()[0]
+                mm_gene[row['mmidx']] = gene_name
+                if row['type'] == 'het_snp':
+                    gene_het_snp_ratio[gene_name].append(
+                        row['ratio']
+                    )
+            except:
+                pass
+
+    gene_allelic_ratio = defaultdict(
+        lambda : default_ratio
+    )
+    for gene_name in gene_het_snp_ratio:
+        n = len(gene_het_snp_ratio[gene_name])
+        if n > 0:
+            gene_allelic_ratio[gene_name] = sum(
+                gene_het_snp_ratio[gene_name]
+            ) / n
+
+    mm_diff_ratio = list()
+    for ri, row in mm_ratio_df.iterrows():
+        mm_diff_ratio.append(
+            row['ratio'] -
+            gene_allelic_ratio[mm_gene[row['mmidx']]]
+        )
+    return mm_diff_ratio
+
+
 def mm_coords_from_df(df):
     mm_coords = []
     for ri, row in df.iterrows():
@@ -729,38 +829,31 @@ def chrom_calculation(chrom, variables):
         exon_padding=variables['exon_padding']
     )
 
-    outfile_strand = variables['outprefix'] + '.' + chrom + '.strand'
-    read_strand.to_csv(outfile_strand, sep='\t', index=False)
-
     strand = dict(
         (row['read_name'], row['read_strand'])
         for ri, row in read_strand.iterrows()
     )
-    del read_strand
     ####################
     # mismatch sites
 
-    df = get_mismatch_from_cs(
+    site_df = get_mismatch_from_cs(
         variables['bam_file'], chrom,
         mapq_threshold=variables['mapq_threshold'],
         min_allele_count=variables['min_allele_count'],
         drop_non_spliced_read=variables['drop_non_spliced_read'],
         min_dist_from_splice=variables['min_dist_from_splice']
     )
-    df = filter_mismatch_homopoly(
-        variables['genome_file'], df, chrom,
+    site_df = filter_mismatch_homopoly(
+        variables['genome_file'], site_df, chrom,
         homopoly_length=variables['homopoly_length'])
-    df = filter_mismatch_simple_repeat(variables['repeat_file'], df, chrom)
-    df = mark_mismatch_dbsnp(variables['snp_file'], df, chrom)
+    site_df = filter_mismatch_simple_repeat(variables['repeat_file'], site_df, chrom)
+    site_df = mark_mismatch_dbsnp(variables['snp_file'], site_df, chrom)
 
-    outfile_df = variables['outprefix'] + '.' + chrom + '.site'
-    df.to_csv(outfile_df, sep='\t', index=False)
-
-    if df.shape[0] == 0:
-        return (None, None)
+    if site_df.shape[0] == 0:
+        return (None, None, None, None)
     ####################
     # mismatch features
-    mm_coords = mm_coords_from_df(df)
+    mm_coords = mm_coords_from_df(site_df)
 
     read_clusters = find_read_clusters(variables['bam_file'], chrom)
     mm_info_list = []
@@ -771,7 +864,8 @@ def chrom_calculation(chrom, variables):
             continue
 
         mm_info = get_mm_info_from_bam(
-            variables['bam_file'], chrom, RC_start, RC_end,
+            variables['bam_file'],
+            chrom, RC_start, RC_end,
             mm_coords, strand
         )
 
@@ -803,9 +897,13 @@ def chrom_calculation(chrom, variables):
                  'chromosome', 'pos', 'strand',
                  'change_type',
                  'read_count', 'depth', 'ratio']
+    ).astype(
+        {'pos': 'int', 'read_count': 'int',
+         'depth': 'int', 'ratio': 'float'}
     )
-    outfile_mm = variables['outprefix'] + '.' + chrom + '.mismatch_ratio'
-    mm_info_df.to_csv(outfile_mm, sep='\t', index=False)
+    mm_info_df.loc[:, 'allelic_ratio_diff'] = diff_of_allelic_ratio(
+        mm_info_df, variables['gtf_file'], chrom
+    )
 
     mi_info_df = pd.DataFrame.from_records(
         mi_info_list,
@@ -814,10 +912,10 @@ def chrom_calculation(chrom, variables):
                  'change_type',
                  'mi', 'n', 'pairs', 'jakarta',
                  'mis', 'mi_cov']
+    ).astype(
+        {'pos': 'int', 'mi': 'float', 'n': 'int'}
     )
-    outfile_mi = variables['outprefix'] + '.' + chrom + '.mi'
-    mi_info_df.to_csv(outfile_mi, sep='\t', index=False)
-    return (mm_info_df, mi_info_df)
+    return (read_strand, site_df, mm_info_df, mi_info_df)
 
 
 def get_site_nearbyseq(site, genome_file):
@@ -867,7 +965,7 @@ def glm_score(data, train_data):
             pd.get_dummies(
                 train_data[['change_type', 'up_seq', 'down_seq']]
             ),
-            train_data['ratio']
+            train_data['allelic_ratio_diff']
         ],
         axis=1
     )
@@ -882,7 +980,7 @@ def glm_score(data, train_data):
             pd.get_dummies(
                 data[['change_type', 'up_seq', 'down_seq']]
             ),
-            data['ratio']
+            data['allelic_ratio_diff']
         ],
         axis=1
     )
@@ -895,7 +993,7 @@ def glm_score(data, train_data):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description="GIREMIL (Genome-independent Identification of RNA Editing by Mutual Information for Long-read RNA-seq)"
+        description="L-GIREMI (Long-read RNA-seq Genome-independent Identification of RNA Editing by Mutual Information)"
     )
     parser.add_argument(
         "-b", "--bam_file",
@@ -1041,10 +1139,10 @@ if __name__ == '__main__':
         default=1
     )
     parser.add_argument(
-        "--mi_threshold",
-        help = "MI threshold to be used to separate RNA editing sites (default: 0.2)",
+        "--mip_threshold",
+        help = "MI p value threshold to be used to separate RNA editing sites (default: 0.05)",
         type=float,
-        default=0.2
+        default=0.05
     )
     parser.add_argument('--version', action='version', version='%(prog)s {0}'.format(__version__))
     args = parser.parse_args()
@@ -1064,7 +1162,7 @@ if __name__ == '__main__':
         'max_het_snp_ratio': args.max_het_snp_ratio,
         'mi_testable_common_reads': args.mi_min_common_read,
         'mi_testable_mono': args.mi_min_read,
-        'mi_threshold': args.mi_threshold,
+        'mip_threshold': args.mip_threshold,
         'bam_file': args.bam_file,
         'outprefix': args.output_prefix,
         'genome_file': args.genome_fasta,
@@ -1080,42 +1178,68 @@ if __name__ == '__main__':
         )
 
     # gethering data
+    strand_list = list()
     site_list = list()
-    mi_list = list()
-    for site, mi in result:
-        if site is not None:
-            site_list.append(site)
-        if mi is not None:
-            mi_list.append(mi)
+    mm_info_list = list()
+    mi_info_list = list()
+    for read_strand, site_df, mm_info_df, mi_info_df in result:
+        if read_strand is not None:
+            strand_list.append(read_strand)
+        if site_df is not None:
+            site_list.append(site_df)
+        if mm_info_df is not None:
+            mm_info_list.append(mm_info_df)
+        if mi_info_df is not None:
+            mi_info_list.append(mi_info_df)
+
+    stranddf = pd.concat(strand_list, axis=0)
+    stranddf.to_csv(
+        variables['outprefix'] + '.strand',
+        sep='\t', index=False
+    )
+    del strand_list
 
     sitedf = pd.concat(site_list, axis=0)
+    sitedf.to_csv(
+        variables['outprefix'] + '.site',
+        sep='\t', index=False
+    )
     del site_list
 
-    sitedf = get_site_nearbyseq(sitedf, variables['genome_file'])
+    mmdf = pd.concat(mm_info_list, axis=0)
+    mmdf = get_site_nearbyseq(mmdf, variables['genome_file'])
+    del mm_info_list
 
-    midf = pd.concat(mi_list, axis=0)
-    del mi_list
+    # mi and mi p value
+    midf = pd.concat(mi_info_list, axis=0)
+    miecdf = ecdf(midf.loc[midf['type'] == 'het_snp', 'mi'])
+    midf.loc[:, 'mip'] = midf['mi'].map(miecdf)
+    midf.to_csv(
+        variables['outprefix'] + '.mi',
+        sep='\t', index=False
+    )
+    del mi_info_list
+
     # GLM score
     train_data = midf[
             ['type', 'chromosome', 'pos',
-         'strand', 'change_type', 'mi']
+             'strand', 'change_type', 'mi', 'mip']
     ].copy()
     train_data.loc[:,'label'] = train_data.apply(
         lambda x: ['other', 'edit'][
-            int(
-                x['type'] == 'mismatch') and
-            (float(x['mi']) <= variables['mi_threshold']
-            )
+            int(x['type'] == 'mismatch') and
+            (float(x['mip']) <= variables['mip_threshold']) and
+            (x['change_type'] == 'A>G')
         ],
         axis=1
     )
     train_data = pd.merge(
-        train_data, sitedf,
+        train_data, mmdf,
         on=['type', 'chromosome', 'pos',
             'strand', 'change_type'],
         how='inner'
     )
-    result = glm_score(sitedf, train_data)
+    result = glm_score(mmdf, train_data)
     result.to_csv(
         variables['outprefix'] + '.score',
         sep='\t', index=False
