@@ -13,7 +13,7 @@ from sklearn.model_selection import train_test_split
 from functools import partial
 from collections import defaultdict
 
-__version__='0.1.3'
+__version__='0.1.4'
 
 base_to_number = {"A":1, "C":2, "G":3, "T":4, "N":5}
 number_to_base = dict((v, k) for k, v in base_to_number.items())
@@ -1227,9 +1227,10 @@ if __name__ == '__main__':
     ].copy()
     train_data.loc[:,'label'] = train_data.apply(
         lambda x: ['other', 'edit'][
-            int(x['type'] == 'mismatch') and
-            (float(x['mip']) <= variables['mip_threshold']) and
-            (x['change_type'] == 'A>G')
+            int(
+                x['type'] == 'mismatch') and
+            (float(x['mip']) <= variables['mip_threshold']
+            )
         ],
         axis=1
     )
