@@ -5,23 +5,31 @@ import pysam
 import argparse
 import pandas as pd
 import numpy as np
+import multiprocessing as mp
+from functools import partial
 from collections import defaultdict
 
 
-def get_read_site_from_bam(site, bam_file,
-                           mapq_threshold = 20):
+def chrom_get_read_site_from_bam(chrom, variables):
     """
     Obtain mismatch coordinates from the cs tags in the bam file
     """
-    sam = pysam.AlignmentFile(bam_file, 'rb')
-    for ri, row in site.iterrows():
+    sites = pd.read_csv(
+        variables['aim_site_file'],
+        header=None, sep='\t'
+    ).drop_duplicates()
+    sites.columns = ['chromosome', 'pos']
+    sites = sites.loc[sites['chromosome'] == chrom]
+    rs_list = list()
+    sam = pysam.AlignmentFile(variables['bam_file'], 'rb')
+    for ri, row in sites.iterrows():
         for pileupcolumn in sam.pileup(
                 row['chromosome'],
                 row['pos'], row['pos'] + 1,
                 truncate=True
         ):
             for read in pileupcolumn.pileups:
-                if read.alignment.mapq < mapq_threshold:
+                if read.alignment.mapq < variables['mapq_threshold']:
                     continue
                 elif read.alignment.is_secondary:
                     ### skip secondary reads
@@ -32,11 +40,13 @@ def get_read_site_from_bam(site, bam_file,
                         read.query_position
                     ]
                     if len(read_seq) > 0:
-                        yield [
-                            read_name,
-                            row['chromosome'], row['pos'],
-                            read_seq
-                        ]
+                        rs_list.append(
+                            [read_name,
+                             row['chromosome'],
+                             row['pos'],
+                             read_seq]
+                        )
+    return rs_list
 
 
 if __name__ == '__main__':
@@ -58,6 +68,18 @@ if __name__ == '__main__':
         required=True
     )
     parser.add_argument(
+        "-c", "--chromosomes",
+        help = "chromosomes to be analyzed",
+        nargs='*',
+        type=str,
+        default = ['chr1', 'chr2', 'chr3', 'chr4',
+                   'chr5', 'chr6', 'chr7', 'chr8',
+                   'chr9', 'chr10', 'chr11', 'chr12',
+                   'chr13', 'chr14', 'chr15', 'chr16',
+                   'chr17', 'chr18', 'chr19', 'chr20',
+                   'chr21', 'chr22', 'chrX', 'chrY']
+    )
+    parser.add_argument(
         "-o", "--output_prefix",
         help = "prefix of output file",
         type=str,
@@ -69,29 +91,42 @@ if __name__ == '__main__':
         type=float,
         default=20
     )
-    args = parser.parse_args()
-    sites = pd.read_csv(
-        args.site_file,
-        header=None, sep='\t'
+    parser.add_argument(
+        "-t", "--thread",
+        help = "cores to be used",
+        type=int,
+        default = 1
     )
-    sites.columns = ['chromosome', 'pos']
+    args = parser.parse_args()
 
-    outfile = open('.'.join([args.output_prefix, 'read_site']), 'w')
+    variables = {
+        'bam_file': args.bam_file,
+        'aim_site_file': args.site_file,
+        'outprefix': args.output_prefix,
+        'mapq_threshold': args.mapq_threshold
+    }
+
+    with mp.Pool(args.thread) as p:
+        results = p.map(
+            partial(
+                chrom_get_read_site_from_bam,
+                variables=variables
+            ),
+            args.chromosomes
+        )
+
+    outfile = open('.'.join([variables['outprefix'], 'read_site']), 'w')
     outfile.write(
         '\t'.join([
             'read_name', 'chromosome', 'pos', 'seq'
         ]) + '\n'
     )
-    read_sites = get_read_site_from_bam(
-        sites, args.bam_file,
-        mapq_threshold = args.mapq_threshold
-    )
-    lines = []
-    for r_s in read_sites:
-        lines.append('\t'.join([str(a) for a in r_s]) + '\n')
-        if len(lines) > 10000:
-            outfile.writelines(lines)
-            lines = []
-
-    outfile.writelines(lines)
+    for chrom_result in results:
+        lines = []
+        for r_s in chrom_result:
+            lines.append('\t'.join([str(a) for a in r_s]) + '\n')
+            if len(lines) > 10000:
+                outfile.writelines(lines)
+                lines = []
+        outfile.writelines(lines)
     outfile.close()

@@ -5,6 +5,8 @@ import pysam
 import argparse
 import pandas as pd
 import numpy as np
+import multiprocessing as mp
+from functools import partial
 from collections import defaultdict
 
 def split_cs_string(cs_string):
@@ -42,15 +44,21 @@ def cs_to_df(cs_string, pos):
     return csdf
 
 
-def get_read_mismatch_from_bam(bam_file, chrom,
-                               mapq_threshold = 20):
+def chrom_get_read_mismatch_from_bam(chrom, variables):
     """
     Obtain mismatch coordinates from the cs tags in the bam file
     """
-    mm_dict = defaultdict(dict)
-    sam = pysam.AlignmentFile(bam_file, 'rb')
+    sites = pd.read_csv(
+        variables['aim_site_file'],
+        header=None, sep='\t'
+    ).drop_duplicates()
+    sites.columns = ['chromosome', 'pos']
+    sites = sites.loc[sites['chromosome'] == chrom]
+    aim_pos = sites['pos'].values
+    mm_list = list()
+    sam = pysam.AlignmentFile(variables['bam_file'], 'rb')
     for read in sam.fetch(chrom):
-        if read.mapq < mapq_threshold:
+        if read.mapq < variables['mapq_threshold']:
                 continue
         elif read.is_secondary: ### skip secondary reads
                 continue
@@ -62,7 +70,9 @@ def get_read_mismatch_from_bam(bam_file, chrom,
         for ri, row in cs_mismatch.iterrows():
             pos = int(row['low'])
             REF, ALT = row['val'].upper()
-            yield [read.query_name, chrom, pos, REF, ALT]
+            if pos in aim_pos:
+                mm_list.append([read.query_name, chrom, pos, REF, ALT])
+    return mm_list
 
 
 if __name__ == '__main__':
@@ -107,34 +117,45 @@ if __name__ == '__main__':
         type=float,
         default=20
     )
-    args = parser.parse_args()
-    sites = pd.read_csv(
-        args.site_file,
-        header=None, sep='\t'
+    parser.add_argument(
+        "-t", "--thread",
+        help = "cores to be used",
+        type=int,
+        default = 1
     )
-    sites.columns = ['chromosome', 'pos']
-    sites.loc[:,'sites'] = sites['chromosome'] + ' ' + sites['pos'].astype(str)
+    args = parser.parse_args()
 
-    outfile = open('.'.join([args.output_prefix, 'read_mismatch']), 'w')
+    variables = {
+        'bam_file': args.bam_file,
+        'aim_site_file': args.site_file,
+        'outprefix': args.output_prefix,
+        'mapq_threshold': args.mapq_threshold
+    }
+
+
+    with mp.Pool(args.thread) as p:
+        results = p.map(
+            partial(
+                chrom_get_read_mismatch_from_bam,
+                variables=variables
+            ),
+            args.chromosomes
+        )
+
+    outfile = open('.'.join([variables['outprefix'], 'read_mismatch']), 'w')
     outfile.write(
         '\t'.join([
             'read_name', 'chromosome',
             'pos', 'ref', 'alt'
         ]) + '\n'
     )
-    for chrom in args.chromosomes:
+    for chrom_result in results:
         lines = []
-        aim_pos = sites.loc[sites['chromosome'] == chrom, 'pos'].values
-        read_mismatches = get_read_mismatch_from_bam(
-            args.bam_file, chrom,
-            mapq_threshold = args.mapq_threshold
-        )
-        for r_m in read_mismatches:
-            if r_m[2] in aim_pos:
-                lines.append(
-                    '\t'.join([str(a) for a in r_m]) +
-                    '\n'
-                )
+        for r_m in chrom_result:
+            lines.append(
+                '\t'.join([str(a) for a in r_m]) +
+                '\n'
+            )
             if len(lines) > 10000:
                 outfile.writelines(lines)
                 lines = []

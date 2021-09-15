@@ -13,7 +13,7 @@ from sklearn.model_selection import train_test_split
 from functools import partial
 from collections import defaultdict
 
-__version__='0.1.4'
+__version__='0.1.5'
 
 base_to_number = {"A":1, "C":2, "G":3, "T":4, "N":5}
 number_to_base = dict((v, k) for k, v in base_to_number.items())
@@ -901,6 +901,10 @@ def chrom_calculation(chrom, variables):
         {'pos': 'int', 'read_count': 'int',
          'depth': 'int', 'ratio': 'float'}
     )
+
+    if mm_info_df.shape[0] == 0:
+        return (None, None, None, None)
+
     mm_info_df.loc[:, 'allelic_ratio_diff'] = diff_of_allelic_ratio(
         mm_info_df, variables['gtf_file'], chrom
     )
@@ -1021,12 +1025,6 @@ if __name__ == '__main__':
         default = 'out'
     )
     parser.add_argument(
-        "-t", "--thread",
-        help = "cores to be used",
-        type=int,
-        default = 1
-    )
-    parser.add_argument(
         "--genome_fasta",
         help = "path of genome fasta file",
         type=str,
@@ -1144,6 +1142,12 @@ if __name__ == '__main__':
         type=float,
         default=0.05
     )
+    parser.add_argument(
+        "-t", "--thread",
+        help = "cores to be used",
+        type=int,
+        default = 1
+    )
     parser.add_argument('--version', action='version', version='%(prog)s {0}'.format(__version__))
     args = parser.parse_args()
 
@@ -1227,10 +1231,8 @@ if __name__ == '__main__':
     ].copy()
     train_data.loc[:,'label'] = train_data.apply(
         lambda x: ['other', 'edit'][
-            int(
-                x['type'] == 'mismatch') and
-            (float(x['mip']) <= variables['mip_threshold']
-            )
+            int(x['type'] == 'mismatch') and
+            (float(x['mip']) <= variables['mip_threshold'])
         ],
         axis=1
     )

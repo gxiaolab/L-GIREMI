@@ -5,6 +5,8 @@ import pysam
 import argparse
 import pandas as pd
 import numpy as np
+import multiprocessing as mp
+from functools import partial
 from collections import defaultdict
 
 def split_cs_string(cs_string):
@@ -42,15 +44,15 @@ def cs_to_df(cs_string, pos):
     return csdf
 
 
-def get_read_splice_from_bam(bam_file, chrom,
-                             mapq_threshold = 20):
+def chrom_get_read_splice_from_bam(chrom, variables):
     """
     Obtain mismatch coordinates from the cs tags in the bam file
     """
     mm_dict = defaultdict(dict)
-    sam = pysam.AlignmentFile(bam_file, 'rb')
+    sam = pysam.AlignmentFile(variables['bam_file'], 'rb')
+    splice_list = list()
     for read in sam.fetch(chrom):
-        if read.mapq < mapq_threshold:
+        if read.mapq < variables['mapq_threshold']:
                 continue
         elif read.is_secondary: ### skip secondary reads
                 continue
@@ -66,8 +68,11 @@ def get_read_splice_from_bam(bam_file, chrom,
                 else:
                     postype = 'intron_right'
                 pos = int(row[x])
-                yield [read.query_name,
-                       chrom, pos, postype]
+                splice_list.append(
+                    [read.query_name,
+                     chrom, pos, postype]
+                )
+    return splice_list
 
 
 if __name__ == '__main__':
@@ -105,22 +110,39 @@ if __name__ == '__main__':
         type=float,
         default=20
     )
+    parser.add_argument(
+        "-t", "--thread",
+        help = "cores to be used",
+        type=int,
+        default = 1
+    )
     args = parser.parse_args()
 
-    outfile = open('.'.join([args.output_prefix, 'read_splice']), 'w')
+    variables = {
+        'bam_file': args.bam_file,
+        'outprefix': args.output_prefix,
+        'mapq_threshold': args.mapq_threshold
+    }
+
+    with mp.Pool(args.thread) as p:
+        results = p.map(
+            partial(
+                chrom_get_read_splice_from_bam,
+                variables=variables
+            ),
+            args.chromosomes
+        )
+
+    outfile = open('.'.join([variables['outprefix'], 'read_splice']), 'w')
     outfile.write(
         '\t'.join([
             'read_name', 'chromosome',
             'pos', 'type'
         ]) + '\n'
     )
-    for chrom in args.chromosomes:
+    for chrom_result in results:
         lines = []
-        read_splice = get_read_splice_from_bam(
-            args.bam_file, chrom,
-            mapq_threshold = args.mapq_threshold
-        )
-        for r_m in read_splice:
+        for r_m in chrom_result:
             lines.append(
                 '\t'.join([str(a) for a in r_m]) +
                 '\n'
