@@ -1,13 +1,9 @@
 #! /usr/bin/env python3
-import re
-import sys
 import pysam
 import argparse
 import pandas as pd
-import numpy as np
 import multiprocessing as mp
 from functools import partial
-from collections import defaultdict
 
 
 def chrom_get_read_site_from_bam(chrom, variables):
@@ -32,7 +28,7 @@ def chrom_get_read_site_from_bam(chrom, variables):
                 if read.alignment.mapq < variables['mapq_threshold']:
                     continue
                 elif read.alignment.is_secondary:
-                    ### skip secondary reads
+                    # skip secondary reads
                     continue
                 if not read.is_del and not read.is_refskip:
                     read_name = read.alignment.query_name
@@ -130,3 +126,5 @@ if __name__ == '__main__':
                 lines = []
         outfile.writelines(lines)
     outfile.close()
+
+####################

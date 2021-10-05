@@ -1,23 +1,20 @@
 #!/usr/bin/env python3
-import sys
 import argparse
 import re
 import pysam
 import pandas as pd
 import numpy as np
 import multiprocessing as mp
-import scipy.stats as stats
-from sklearn.metrics import mutual_info_score, roc_curve, auc
+from sklearn.metrics import mutual_info_score
 from sklearn import linear_model
-from sklearn.model_selection import train_test_split
 from functools import partial
 from collections import defaultdict
 
-__version__='0.1.5'
+__version__ = '0.1.6'
 
-base_to_number = {"A":1, "C":2, "G":3, "T":4, "N":5}
+base_to_number = {"A" : 1, "C" : 2, "G" : 3, "T" : 4, "N" : 5}
 number_to_base = dict((v, k) for k, v in base_to_number.items())
-ntpairs = {'A':'T', 'C':'G', 'G':'C', 'T':'A', 'N':'N'}
+ntpairs = {'A' : 'T', 'C' : 'G', 'G' : 'C', 'T' : 'A', 'N' : 'N'}
 
 
 def binary_search(lista, val):
@@ -85,6 +82,7 @@ cslenfuncs = {
     '~': lambda x: int(re.sub('[a-z]', '', x))
 }
 
+
 def cs_to_df(cs_string, pos):
     cs = split_cs_string(cs_string)
     cslist = list()
@@ -97,9 +95,10 @@ def cs_to_df(cs_string, pos):
         np.row_stack(cslist),
         columns=['low', 'high', 'ope', 'val']
     )
-    csdf.loc[:,'low'] = csdf['low'].astype(int)
-    csdf.loc[:,'high'] = csdf['high'].astype(int)
+    csdf.loc[: , 'low'] = csdf['low'].astype(int)
+    csdf.loc[: , 'high'] = csdf['high'].astype(int)
     return csdf
+
 
 def get_mismatch_from_cs(bam_file, chrom,
                          mapq_threshold = 20,
@@ -114,14 +113,14 @@ def get_mismatch_from_cs(bam_file, chrom,
 
     for read in sam.fetch(chrom):
         if read.mapq < mapq_threshold:
-                continue
-        elif read.is_secondary: ### skip secondary reads
-                continue
+            continue
+        elif read.is_secondary: # skip secondary reads
+            continue
         # 0 based
         pos = read.reference_start
         cs = cs_to_df(read.get_tag('cs'), pos)
-        cs_splice = cs.loc[cs['ope']=='~']
-        cs_mismatch = cs.loc[cs['ope']=='*']
+        cs_splice = cs.loc[cs['ope'] == '~']
+        cs_mismatch = cs.loc[cs['ope'] == '*']
         if drop_non_spliced_read:
             if cs_splice.shape[0] == 0:
                 continue
@@ -146,26 +145,27 @@ def get_mismatch_from_cs(bam_file, chrom,
                 ].iterrows():
                     pos = int(row['low'])
                     REF, ALT = row['val'].upper()
-                    try:
+                    if ALT in mm_dict[(chrom, pos, REF)]:
                         mm_dict[(chrom, pos, REF)][ALT] += 1
-                    except:
+                    else:
                         mm_dict[(chrom, pos, REF)][ALT] = 1
     arr_chrom = list()
     arr_pos = list()
     arr_ref = list()
     for (chrom, pos, REF), ALT_set in mm_dict.items():
-        if len(ALT_set) > 2: ### Removes positions that have more than 2 alleles
+        if len(ALT_set) > 2:
+            ## Removes positions that have more than 2 alleles
             seqs = list(ALT_set.keys())
             values = np.array(list(ALT_set.values()))
-            ALT_set = {seqs[i]:values[i] for i in values.argsort()[-2:]}
+            ALT_set = {seqs[i] : values[i] for i in values.argsort()[-2:]}
         if any(AC >= min_allele_count for ALT, AC in ALT_set.items()):
             arr_chrom.append(chrom)
             arr_pos.append(pos)
             arr_ref.append(REF)
     arr = pd.DataFrame(
-        {'chromosome':arr_chrom,
-         'pos':arr_pos,
-         'ref':arr_ref}
+        {'chromosome' : arr_chrom,
+         'pos' : arr_pos,
+         'ref' : arr_ref}
     )
     return arr
 
@@ -219,7 +219,7 @@ def filter_mismatch_simple_repeat(repeat_file, mismatch_df, chrom):
             idx.append(False)
         else:
             idx.append(True)
-    return mismatch_df.loc[idx].reset_index(drop=True).copy()
+    return mismatch_df.loc[idx].reset_index(drop = True).copy()
 
 
 def mark_mismatch_dbsnp(snp_file, mismatch_df, chrom):
@@ -227,12 +227,12 @@ def mark_mismatch_dbsnp(snp_file, mismatch_df, chrom):
     snp_dict = defaultdict(int)
     for a in vcf.fetch(chrom):
         snp_dict[a.start] = 1
-    mismatch_df.loc[:,'snp'] = mismatch_df['pos'].map(snp_dict)
+    mismatch_df.loc[: , 'snp'] = mismatch_df['pos'].map(snp_dict)
     vcf.close()
     return mismatch_df
 
 
-def get_gtf_gene_strand(gtf, low, high, padding=500):
+def get_gtf_gene_strand(gtf, low, high, padding = 500):
     if gtf.shape[0] == 0:
         return None
     strand = gtf['strand'][
@@ -245,7 +245,7 @@ def get_gtf_gene_strand(gtf, low, high, padding=500):
         return None
 
 
-def get_gtf_exon_strand(gtf, intron, padding=10):
+def get_gtf_exon_strand(gtf, intron, padding = 10):
     if gtf.shape[0] == 0:
         return None
     if intron.shape[0] == 0:
@@ -302,9 +302,9 @@ def get_gtf_exon_strand(gtf, intron, padding=10):
 def get_gtf_strand(gtf, low, high, intron,
                    gene_padding=500, exon_padding=10):
     gtf_strand = None
-    ## gtf gene strand
+    # gtf gene strand
     gtf_gene_strand = get_gtf_gene_strand(
-        gtf=gtf.loc[gtf['feature']=='gene'],
+        gtf=gtf.loc[gtf['feature'] == 'gene'],
         low=low,
         high=high,
         padding=gene_padding
@@ -314,7 +314,7 @@ def get_gtf_strand(gtf, low, high, intron,
             gtf_strand = gtf_gene_strand[0]
         else:
             gtf_strand = get_gtf_exon_strand(
-                gtf=gtf.loc[gtf['feature']=='exon'],
+                gtf=gtf.loc[gtf['feature'] == 'exon'],
                 intron=intron,
                 padding=exon_padding
             )
@@ -340,7 +340,7 @@ def get_splice_strand(intron):
 
 def get_read_strand(seq_strand, gtf, low, high, intron,
                     gene_padding=500, exon_padding=10):
-    ## gtf strand
+    # gtf strand
     gtf_strand = get_gtf_strand(
         gtf=gtf,
         low=low,
@@ -349,7 +349,7 @@ def get_read_strand(seq_strand, gtf, low, high, intron,
         gene_padding=gene_padding,
         exon_padding=exon_padding
     )
-    ## splice strand
+    # splice strand
     splice_strand = get_splice_strand(intron=intron)
     # read_strand
     read_strand = seq_strand
@@ -368,16 +368,16 @@ def get_read_strand(seq_strand, gtf, low, high, intron,
 
 
 def correct_read_strand(bam_file, gtf_file, chrom,
-                        mapq_threshold=20,
-                        gene_padding=500,
-                        exon_padding=10,
-                        drop_non_spliced_read=True):
+                        mapq_threshold = 20,
+                        gene_padding = 500,
+                        exon_padding = 10,
+                        drop_non_spliced_read = True):
     sam = pysam.AlignmentFile(bam_file, 'rb')
     gtf = pysam.TabixFile(gtf_file)
     read_name_list = []
     seq_strand_list = []
     read_strand_list = []
-    for read in sam.fetch(reference=chrom):
+    for read in sam.fetch(reference = chrom):
         if read.mapq < mapq_threshold:
             continue
         # 0 based
@@ -401,28 +401,28 @@ def correct_read_strand(bam_file, gtf_file, chrom,
             )
         gtf_df = pd.DataFrame.from_records(
             gtf_list,
-            columns=['feature', 'gene_name',
-                     'low', 'high', 'strand']
+            columns = ['feature', 'gene_name',
+                       'low', 'high', 'strand']
         )
         del gtf_list
         # correct strand
         seq_strand = ['+', '-'][int(read.is_reverse)]
         # read strand
         read_strand = get_read_strand(
-            seq_strand, gtf=gtf_df,
-            low=seq_ref_low,
-            high=seq_ref_high,
-            intron=cs.loc[cs['ope'] == '~'],
-            gene_padding=gene_padding,
-            exon_padding=exon_padding
+            seq_strand, gtf = gtf_df,
+            low = seq_ref_low,
+            high = seq_ref_high,
+            intron = cs.loc[cs['ope'] == '~'],
+            gene_padding = gene_padding,
+            exon_padding = exon_padding
         )
         read_name_list.append(read.query_name)
         seq_strand_list.append(seq_strand)
         read_strand_list.append(read_strand)
     df = pd.DataFrame(
-        {'read_name': read_name_list,
-         'seq_strand': seq_strand_list,
-         'read_strand': read_strand_list}
+        {'read_name' : read_name_list,
+         'seq_strand' : seq_strand_list,
+         'read_strand' : read_strand_list}
     )
     sam.close()
     gtf.close()
@@ -452,7 +452,7 @@ def process_cigar(read):
         elif c in [1, 4, 5]: # I, S, H clipping
             j += d
         else:
-            raise ValueError("Cannot process CIGAR string: {}".format(cigar_dict[c]))
+            raise ValueError("Cannot process CIGAR string")
     return proc_seq, ConvPos
 
 
@@ -490,7 +490,8 @@ def find_read_clusters(bam_file, chrom):
     Read_Clusters = list()
     i = 0
     for (start, end, Max_Cov) in RC_coordinates:
-        if Max_Cov >= 2: ### Skipping single-read read clusters
+        if Max_Cov >= 2:
+            # Skipping single-read read clusters
             Read_Clusters.append((i, start, end, Max_Cov))
             i += 1
 
@@ -499,19 +500,20 @@ def find_read_clusters(bam_file, chrom):
     return Read_Clusters
 
 
-def get_mm_info_from_bam(bam_file, chrom, start, end, mm_coords, corrected_strand):
+def get_mm_info_from_bam(bam_file, chrom, start, end,
+                         mm_coords, corrected_strand):
     """
     Obtain overlapping reads for the mismatches
     Only select reads that overlap the read cluster
     mismatches that don't overlap the read cluster are skipped
     """
     mm_info = defaultdict(dict)
-    ### Parsing mm coordinates
+    # Parsing mm coordinates
     FirstSearchIndex = 0
     LastSearchIndex = mm_coords.shape[0] - 1
     mm_sorted_position, mm_sorted_ref_base, mm_sorted_issnp = np.transpose(mm_coords)
     mm_sorted_position = mm_sorted_position.astype(int)
-    ### Read bam file
+    # Read bam file
     bam_handle  = pysam.Samfile(bam_file, 'rb')
 
     for read in bam_handle.fetch(reference = chrom, start = start, end = end):
@@ -523,7 +525,7 @@ def get_mm_info_from_bam(bam_file, chrom, start, end, mm_coords, corrected_stran
 
         RL = len(read.query_sequence)
 
-        ### Filter reads
+        # Filter reads
 
         if read.is_supplementary:
             continue
@@ -534,22 +536,22 @@ def get_mm_info_from_bam(bam_file, chrom, start, end, mm_coords, corrected_stran
         if 'NH' in dict(read.tags) and read.get_tag('NH') > 1:
             continue
 
-        ### Move mismatch index until it overlaps the read
+        # Move mismatch index until it overlaps the read
 
         while FirstSearchIndex <= LastSearchIndex and mm_sorted_position[FirstSearchIndex] < read.pos:
             FirstSearchIndex += 1
 
-        ### Get the first index for mismatch the overlaps the read
+        # Get the first index for mismatch the overlaps the read
         FirstSearchIndexRead = FirstSearchIndex
 
-        ### Process sequence from CIGAR string
+        # Process sequence from CIGAR string
         ProcReadSeq, ConvPos = process_cigar(read)
 
         read_pos = 0
 
         for sB, eB in read.get_blocks():
             bL = eB - sB
-            ### Get the the first mismatch index that overlaps each read block
+            # Get the the first mismatch index that overlaps each read block
             while FirstSearchIndexRead <= LastSearchIndex and mm_sorted_position[FirstSearchIndexRead] <= eB - 1:
                 if mm_sorted_position[FirstSearchIndexRead] < sB:
                     FirstSearchIndexRead += 1
@@ -561,13 +563,13 @@ def get_mm_info_from_bam(bam_file, chrom, start, end, mm_coords, corrected_stran
                 SNV_ISSNP = mm_sorted_issnp[FirstSearchIndexRead]
 
                 mm_read_index = read_pos + SNV_POS - sB
-                ### Obtain read position of the SNV
-                ### Actually shortest distance to either end of the read
+                # Obtain read position of the SNV
+                # Actually shortest distance to either end of the read
                 SNV_READ_POS = ConvPos[sB] + SNV_POS - sB + 1
                 if read_strand == '-':
                     SNV_READ_POS = RL - SNV_READ_POS - 1
 
-                ### Obtain read base of the SNV
+                # Obtain read base of the SNV
                 seq_strand = '-' if read.is_reverse else '+'
                 if seq_strand == read_strand:
                     snv_read_seq = ProcReadSeq[mm_read_index]
@@ -577,10 +579,10 @@ def get_mm_info_from_bam(bam_file, chrom, start, end, mm_coords, corrected_stran
 
                 FirstSearchIndexRead += 1
 
-                ### Dictionary with read-level information
+                # Dictionary with read-level information
                 ############################################
-                ### For short-read we collect read position and read direction
-                ### May not be relevant feature in long-read
+                # For short-read we collect read position and read direction
+                # May not be relevant feature in long-read
                 # using corrected_strand
 
                 mm_info[
@@ -606,7 +608,7 @@ def variant_filter(mm_info, chrom,
     for ((POS, REF, STRAND, ISSNP), read_dict) in items_list:
         allele_counts = dict((base, []) for base in ['A', 'T', 'C', 'G', 'N'])
         for read_name, read_snv in read_dict.items():
-                allele_counts[read_snv].append(read_name)
+            allele_counts[read_snv].append(read_name)
 
         DP = sum(len(v) for v in allele_counts.values())
 
@@ -618,8 +620,10 @@ def variant_filter(mm_info, chrom,
         for base, read_list in list(allele_counts.items()):
             AC = len(read_list)
             AB = AC/DP
-            ### For all SNV positions, discard alleles that have low allele freq.
-            ### or low allelic read count by removing the reads that contain these alleles
+            # For all SNV positions,
+            # discard alleles that have low allele freq.
+            # or low allelic read count
+            # by removing the reads that contain these alleles
             if AB < min_AB or AC < min_AC:
                 for read in read_list:
                     mm_info[(POS, REF, STRAND, ISSNP)].pop(read)
@@ -628,9 +632,9 @@ def variant_filter(mm_info, chrom,
                 if (AB >= min_het_snp_ratio) and (AB <= max_het_snp_ratio):
                     mismatch_type = 'het_snp'
             the_ratio[base] = [AC, DP, AB]
-        ### If only one allele is left at this position (including the REF)
-        ### then discard this position.
-        ### For the retained SNVs, change dictionary key format
+        # If only one allele is left at this position (including the REF)
+        # then discard this position.
+        # For the retained SNVs, change dictionary key format
         if len(allele_counts) < 2:
             mm_info.pop((POS, REF, STRAND, ISSNP))
         else:
@@ -656,7 +660,7 @@ def mutual_information(mm_info, rc_i,
 
     sorted_SNV_list = sorted(mm_info.keys(), key = lambda x: x[0])
 
-    for snv1 in sorted_SNV_list: ## SNVs 0
+    for snv1 in sorted_SNV_list: # SNVs 0
         var1_reads = mm_info[snv1]
 
         MI_values = []
@@ -664,9 +668,9 @@ def mutual_information(mm_info, rc_i,
         SNV_pair_jakarta = []
         SNV_pair = []
 
-        for snv2 in sorted_SNV_list: ## SNPs 1
+        for snv2 in sorted_SNV_list: # SNPs 1
             if snv2.find('het_snp') < 0:
-                ## skip non het_snp
+                # skip non het_snp
                 continue
             var2_reads = mm_info[snv2]
 
@@ -675,7 +679,7 @@ def mutual_information(mm_info, rc_i,
             common_reads = set(var1_reads) & set(var2_reads)
             lc = len(common_reads)
 
-            ### check overlap of reads between SNVs (Jakarta index)
+            # check overlap of reads between SNVs (Jakarta index)
             jakarta = lc/len(set(var1_reads) | set(var2_reads))
 
 
@@ -691,7 +695,7 @@ def mutual_information(mm_info, rc_i,
             var1_alleles, var1_allele_counts = np.unique(mat[:, 0], return_counts = True)
             var2_alleles, var2_allele_counts = np.unique(mat[:, 1], return_counts = True)
 
-            ### Only selecting pairs of SNVs that have mono >= mi_testable_mono (1)
+            # Only selecting pairs of SNVs that have mono >= mi_testable_mono (1)
             if any(AC > lc - mi_testable_mono for AC in var1_allele_counts):
                 continue
 
@@ -705,9 +709,9 @@ def mutual_information(mm_info, rc_i,
             MI_values.append(round(MI, 3))
             MI_coverage.append(lc)
 
-        ### save information of SNVs that were testable for MI
+        # save information of SNVs that were testable for MI
         if MI_values:
-            ### weighed MI average by common read count
+            # weighed MI average by common read count
             wAve_MI  = np.average(MI_values, weights = MI_coverage)
             n = len(MI_coverage)
             mi_info[snv1] = [n, wAve_MI, SNV_pair, SNV_pair_jakarta, MI_values, MI_coverage]
@@ -724,7 +728,10 @@ def format_mi_output_file(mi_info):
         mi_vars     = ["{:.3f}".format(_mi) for _mi in mi_vars]
         snv_pair_jk = ["{:.3f}".format(_jk) for _jk in snv_pair_jk]
         mi = round(mi, 3)
-        line = snv.split(':') + [mi, n, ";".join(snv_pairs), ";".join(snv_pair_jk), ";".join(mi_vars), ";".join(map(str, mi_cov))]
+        line = snv.split(':') + [
+            mi, n, ";".join(snv_pairs), ";".join(snv_pair_jk),
+            ";".join(mi_vars), ";".join(map(str, mi_cov))
+        ]
         output_lines.append(line)
     return output_lines
 
@@ -805,9 +812,9 @@ def diff_of_allelic_ratio(mm_ratio_df, gtf_file, chrom, default_ratio = 0.5):
 def mm_coords_from_df(df):
     mm_coords = []
     for ri, row in df.iterrows():
-        ### Reading the file
-        ### Choose to split SNVs based on the dbSNP tag (last column, 0 | 1)
-        chrom = row['chromosome']
+        # Reading the file
+        # Choose to split SNVs based on the dbSNP tag (last column, 0 | 1)
+        # chrom = row['chromosome']
         pos = row['pos']
         ref = row['ref']
         snp = row['snp']
@@ -846,7 +853,9 @@ def chrom_calculation(chrom, variables):
     site_df = filter_mismatch_homopoly(
         variables['genome_file'], site_df, chrom,
         homopoly_length=variables['homopoly_length'])
-    site_df = filter_mismatch_simple_repeat(variables['repeat_file'], site_df, chrom)
+    site_df = filter_mismatch_simple_repeat(
+        variables['repeat_file'], site_df, chrom
+    )
     site_df = mark_mismatch_dbsnp(variables['snp_file'], site_df, chrom)
 
     if site_df.shape[0] == 0:
@@ -923,7 +932,7 @@ def chrom_calculation(chrom, variables):
 
 
 def get_site_nearbyseq(site, genome_file):
-    ntpairs = {'A':'T', 'C':'G', 'G':'C', 'T':'A', 'N':'N'}
+    ntpairs = {'A' : 'T', 'C' : 'G', 'G' : 'C', 'T' : 'A', 'N' : 'N'}
     genome = pysam.FastaFile(genome_file)
     site_list = list()
     # +
@@ -973,7 +982,9 @@ def glm_score(data, train_data):
         ],
         axis=1
     )
-    train_label = train_data['label'].map(lambda x: 1 if x=='edit' else 0)
+    train_label = train_data['label'].map(
+        lambda x: 1 if x == 'edit' else 0
+    )
 
     lm = linear_model.LinearRegression()
 
@@ -1152,32 +1163,32 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     variables = {
-        'mapq_threshold': args.mapq_threshold,
-        'min_allele_count': args.min_allele_count,
-        'drop_non_spliced_read': args.drop_non_spliced_read,
-        'min_dist_from_splice': args.min_dist_from_splice,
-        'gene_padding': args.gene_padding,
-        'exon_padding': args.exon_padding,
-        'min_rc_cov': args.min_rc_cov,
-        'homopoly_length': args.homopoly_length,
-        'min_AB': args.min_AB,
-        'min_AC': args.min_AC,
-        'min_het_snp_ratio': args.min_het_snp_ratio,
-        'max_het_snp_ratio': args.max_het_snp_ratio,
-        'mi_testable_common_reads': args.mi_min_common_read,
-        'mi_testable_mono': args.mi_min_read,
-        'mip_threshold': args.mip_threshold,
-        'bam_file': args.bam_file,
-        'outprefix': args.output_prefix,
-        'genome_file': args.genome_fasta,
-        'snp_file': args.snp_bcf,
-        'repeat_file': args.repeat_txt,
-        'gtf_file': args.annotation_gtf
+        'mapq_threshold' : args.mapq_threshold,
+        'min_allele_count' : args.min_allele_count,
+        'drop_non_spliced_read' : args.drop_non_spliced_read,
+        'min_dist_from_splice' : args.min_dist_from_splice,
+        'gene_padding' : args.gene_padding,
+        'exon_padding' : args.exon_padding,
+        'min_rc_cov' : args.min_rc_cov,
+        'homopoly_length' : args.homopoly_length,
+        'min_AB' : args.min_AB,
+        'min_AC' : args.min_AC,
+        'min_het_snp_ratio' : args.min_het_snp_ratio,
+        'max_het_snp_ratio' : args.max_het_snp_ratio,
+        'mi_testable_common_reads' : args.mi_min_common_read,
+        'mi_testable_mono' : args.mi_min_read,
+        'mip_threshold' : args.mip_threshold,
+        'bam_file' : args.bam_file,
+        'outprefix' : args.output_prefix,
+        'genome_file' : args.genome_fasta,
+        'snp_file' : args.snp_bcf,
+        'repeat_file' : args.repeat_txt,
+        'gtf_file' : args.annotation_gtf
     }
 
     with mp.Pool(args.thread) as p:
         result = p.map(
-            partial(chrom_calculation, variables=variables),
+            partial(chrom_calculation, variables = variables),
             args.chromosomes
         )
 
@@ -1196,31 +1207,31 @@ if __name__ == '__main__':
         if mi_info_df is not None:
             mi_info_list.append(mi_info_df)
 
-    stranddf = pd.concat(strand_list, axis=0)
+    stranddf = pd.concat(strand_list, axis = 0)
     stranddf.to_csv(
         variables['outprefix'] + '.strand',
-        sep='\t', index=False
+        sep = '\t', index = False
     )
     del strand_list
 
-    sitedf = pd.concat(site_list, axis=0)
+    sitedf = pd.concat(site_list, axis = 0)
     sitedf.to_csv(
         variables['outprefix'] + '.site',
-        sep='\t', index=False
+        sep = '\t', index = False
     )
     del site_list
 
-    mmdf = pd.concat(mm_info_list, axis=0)
+    mmdf = pd.concat(mm_info_list, axis = 0)
     mmdf = get_site_nearbyseq(mmdf, variables['genome_file'])
     del mm_info_list
 
     # mi and mi p value
-    midf = pd.concat(mi_info_list, axis=0)
+    midf = pd.concat(mi_info_list, axis = 0)
     miecdf = ecdf(midf.loc[midf['type'] == 'het_snp', 'mi'])
     midf.loc[:, 'mip'] = midf['mi'].map(miecdf)
     midf.to_csv(
         variables['outprefix'] + '.mi',
-        sep='\t', index=False
+        sep = '\t', index = False
     )
     del mi_info_list
 
@@ -1229,21 +1240,22 @@ if __name__ == '__main__':
             ['type', 'chromosome', 'pos',
              'strand', 'change_type', 'mi', 'mip']
     ].copy()
-    train_data.loc[:,'label'] = train_data.apply(
+    train_data.loc[: , 'label'] = train_data.apply(
         lambda x: ['other', 'edit'][
             int(x['type'] == 'mismatch') and
             (float(x['mip']) <= variables['mip_threshold'])
         ],
-        axis=1
+        axis = 1
     )
     train_data = pd.merge(
         train_data, mmdf,
-        on=['type', 'chromosome', 'pos',
-            'strand', 'change_type'],
-        how='inner'
+        on = ['type', 'chromosome', 'pos',
+              'strand', 'change_type'],
+        how = 'inner'
     )
     result = glm_score(mmdf, train_data)
     result.to_csv(
         variables['outprefix'] + '.score',
-        sep='\t', index=False
+        sep = '\t', index = False
     )
+####################

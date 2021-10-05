@@ -43,18 +43,11 @@ def cs_to_df(cs_string, pos):
     return csdf
 
 
-def chrom_get_read_mismatch_from_bam(chrom, variables):
+def chrom_get_read_intron_from_bam(chrom, variables):
     """
-    Obtain mismatch coordinates from the cs tags in the bam file
+    Obtain intron coordinates from the cs tags in the bam file
     """
-    sites = pd.read_csv(
-        variables['aim_site_file'],
-        header=None, sep='\t'
-    ).drop_duplicates()
-    sites.columns = ['chromosome', 'pos']
-    sites = sites.loc[sites['chromosome'] == chrom]
-    aim_pos = sites['pos'].values
-    mm_list = list()
+    intron_list = list()
     sam = pysam.AlignmentFile(variables['bam_file'], 'rb')
     for read in sam.fetch(chrom):
         if read.mapq < variables['mapq_threshold']:
@@ -65,25 +58,24 @@ def chrom_get_read_mismatch_from_bam(chrom, variables):
         # 0 based
         pos = read.reference_start
         cs = cs_to_df(read.get_tag('cs'), pos)
-        cs_mismatch = cs.loc[cs['ope'] == '*']
-        for ri, row in cs_mismatch.iterrows():
-            pos = int(row['low'])
-            REF, ALT = row['val'].upper()
-            if pos in aim_pos:
-                mm_list.append([read.query_name, chrom, pos, REF, ALT])
-    return mm_list
+        cs_splice = cs.loc[cs['ope'] == '~']
+        for ri, row in cs_splice.iterrows():
+            low = int(row['low'])
+            high = int(row['high'])
+            a = row['val'][0:2]
+            b = row['val'][-2:]
+            length = int(row['val'][2:-2])
+            intron_list.append(
+                [read.query_name,
+                 chrom, low, high, length,
+                 a, b]
+            )
+    return intron_list
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description="Get read and mismatch site information from bam file"
-    )
-    parser.add_argument(
-        "-s", "--site_file",
-        help="input site file: [chromosome, pos], without header, separated by tab",
-        type=str,
-        default=None,
-        required=True
+        description="Get read and intron information from bam file"
     )
     parser.add_argument(
         "-b", "--bam_file",
@@ -126,7 +118,6 @@ if __name__ == '__main__':
 
     variables = {
         'bam_file': args.bam_file,
-        'aim_site_file': args.site_file,
         'outprefix': args.output_prefix,
         'mapq_threshold': args.mapq_threshold
     }
@@ -134,17 +125,17 @@ if __name__ == '__main__':
     with mp.Pool(args.thread) as p:
         results = p.map(
             partial(
-                chrom_get_read_mismatch_from_bam,
+                chrom_get_read_intron_from_bam,
                 variables=variables
             ),
             args.chromosomes
         )
 
-    outfile = open('.'.join([variables['outprefix'], 'read_mismatch']), 'w')
+    outfile = open('.'.join([variables['outprefix'], 'read_intron']), 'w')
     outfile.write(
         '\t'.join([
             'read_name', 'chromosome',
-            'pos', 'ref', 'alt'
+            'start', 'end', 'length', 'a', 'b'
         ]) + '\n'
     )
     for chrom_result in results:
