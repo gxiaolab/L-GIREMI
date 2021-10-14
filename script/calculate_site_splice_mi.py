@@ -1,5 +1,4 @@
-# import pysam
-import sys
+#! /usr/bin/env python3
 import argparse
 import pandas as pd
 from functools import reduce
@@ -29,7 +28,6 @@ if __name__ == '__main__':
         default = 'out'
     )
     args = parser.parse_args()
-
 
     site_file = args.read_site
     splice_file = args.read_splice

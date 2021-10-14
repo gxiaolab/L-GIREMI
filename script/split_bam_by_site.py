@@ -1,13 +1,8 @@
 #! /usr/bin/env python3
-import re
-import sys
 import pysam
 import argparse
-import pandas as pd
-import numpy as np
 from collections import defaultdict
 
-####################
 
 def get_seq_dict(sam, chrom, pos):
 
@@ -36,9 +31,10 @@ def get_seq_dict(sam, chrom, pos):
 
 ####################
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description="Get read and mismatch site information from bam file"
+        description="Save reads that cover one position into separated SAM files by the genomic location"
     )
     parser.add_argument(
         "-b", "--bam_file",
@@ -77,4 +73,5 @@ if __name__ == '__main__':
             outfile.write(s)
         outfile.close()
     sam.close()
+
 ####################

@@ -47,7 +47,7 @@ def chrom_get_read_site_from_bam(chrom, variables):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description="Get read and mismatch site information from bam file"
+        description="Get read and site information from bam file"
     )
     parser.add_argument(
         "-s", "--site_file",

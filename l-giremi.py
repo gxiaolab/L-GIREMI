@@ -10,7 +10,7 @@ from sklearn import linear_model
 from functools import partial
 from collections import defaultdict
 
-__version__ = '0.1.6'
+__version__ = '0.1.7'
 
 base_to_number = {"A" : 1, "C" : 2, "G" : 3, "T" : 4, "N" : 5}
 number_to_base = dict((v, k) for k, v in base_to_number.items())

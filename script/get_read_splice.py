@@ -1,6 +1,5 @@
 #! /usr/bin/env python3
 import re
-import sys
 import pysam
 import argparse
 import pandas as pd
@@ -8,6 +7,7 @@ import numpy as np
 import multiprocessing as mp
 from functools import partial
 from collections import defaultdict
+
 
 def split_cs_string(cs_string):
     return list(
@@ -39,8 +39,8 @@ def cs_to_df(cs_string, pos):
         np.row_stack(cslist),
         columns=['low', 'high', 'ope', 'val']
     )
-    csdf.loc[:,'low'] = csdf['low'].astype(int)
-    csdf.loc[:,'high'] = csdf['high'].astype(int)
+    csdf.loc[:, 'low'] = csdf['low'].astype(int)
+    csdf.loc[:, 'high'] = csdf['high'].astype(int)
     return csdf
 
 
@@ -48,19 +48,17 @@ def chrom_get_read_splice_from_bam(chrom, variables):
     """
     Obtain mismatch coordinates from the cs tags in the bam file
     """
-    mm_dict = defaultdict(dict)
     sam = pysam.AlignmentFile(variables['bam_file'], 'rb')
     splice_list = list()
     for read in sam.fetch(chrom):
         if read.mapq < variables['mapq_threshold']:
-                continue
-        elif read.is_secondary: ### skip secondary reads
-                continue
+            continue
+        elif read.is_secondary: # skip secondary reads
+            continue
         # 0 based
         pos = read.reference_start
         cs = cs_to_df(read.get_tag('cs'), pos)
-        cs_splice = cs.loc[cs['ope']=='~']
-        cs_mismatch = cs.loc[cs['ope']=='*']
+        cs_splice = cs.loc[cs['ope'] == '~']
         for ri, row in cs_splice.iterrows():
             for x in ['low', 'high']:
                 if x == 'low':
@@ -153,3 +151,5 @@ if __name__ == '__main__':
         outfile.writelines(lines)
 
     outfile.close()
+
+####################

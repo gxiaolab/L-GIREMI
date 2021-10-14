@@ -1,6 +1,4 @@
 #! /usr/bin/env python3
-import re
-import sys
 import pysam
 import argparse
 import pandas as pd
@@ -9,6 +7,7 @@ import multiprocessing as mp
 from functools import partial
 
 ####################
+
 
 def chrom_aei(chrom, variables):
     genome = pysam.FastaFile(variables['genome_file'])
@@ -161,9 +160,10 @@ def chrom_aei(chrom, variables):
 
 ####################
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description="Get read and mismatch site information from bam file"
+        description="Calculate AEI from bam file, both in read level and Alu level"
     )
     parser.add_argument(
         "-b", "--bam_file",

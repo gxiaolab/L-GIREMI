@@ -1,8 +1,6 @@
 #! /usr/bin/env python3
-import sys
 import pysam
 import argparse
-import pandas as pd
 import numpy as np
 from collections import defaultdict
 
@@ -22,7 +20,7 @@ def get_gtf_splice_pos(gtf_file, chromosomes):
                 poslist[chrom].append([gtf_entry.start, 'exon_start'])
                 poslist[chrom].append([gtf_entry.end, 'exon_end'])
         pos[chrom] = np.sort(np.unique(np.array(
-            [a for a,b in poslist[chrom] + poslist[chrom]]
+            [a for a, b in poslist[chrom] + poslist[chrom]]
         )))
 
     return pos
@@ -108,3 +106,5 @@ if __name__ == '__main__':
         outfile.writelines(outlines)
 
     outfile.close()
+
+####################
