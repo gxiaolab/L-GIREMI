@@ -25,6 +25,46 @@ And the analysis with L-GIREMI also needs additional software:
 * [tabix](http://www.htslib.org)
 * [minimap2](https://github.com/lh3/minimap2)
 
+### Installation
+
+It's advised to install the software into a virtual environment.
+
+Create virtual environment:
+
+```{bash}
+conda create -n l_giremi
+conda activate l_giremi
+```
+
+Or:
+
+```{bash}
+virtualenv l_giremi
+source bin/activate
+```
+
+
+#### From github
+
+Download from github:
+
+```{bash}
+git clone https://github.com/gxiaolab/L-GIREMI
+cd L-GIREMI
+```
+
+Install the package:
+
+```{bash}
+python setup.py install
+```
+
+#### From pip
+
+```{bash}
+pip install l-giremi
+```
+
 ### Reference data
 
 Be aware to use reference files with same assembly version and the
@@ -89,7 +129,7 @@ should be: chromosome, start, end. No header needed for the file.
 ## Usage
 
 ```{bash}
-usage: l-giremi.py [-h] -b BAM_FILE [-c [CHROMOSOMES ...]] [-o OUTPUT_PREFIX] [-t THREAD] --genome_fasta GENOME_FASTA
+usage: l-giremi [-h] -b BAM_FILE [-c [CHROMOSOMES ...]] [-o OUTPUT_PREFIX] [-t THREAD] --genome_fasta GENOME_FASTA
                   --snp_bcf SNP_BCF --repeat_txt REPEAT_TXT --annotation_gtf ANNOTATION_GTF
                   [--mapq_threshold MAPQ_THRESHOLD] [--min_allele_count MIN_ALLELE_COUNT]
                   [--gene_padding GENE_PADDING] [--exon_padding EXON_PADDING] [--min_rc_cov MIN_RC_COV]
@@ -176,10 +216,10 @@ samtools view -O BAM -F 2052 -h $SAM_FILE | \
 samtools index $BAM_FILE
 ```
 
-Next, run `l-giremi.py`.
+Next, run `l-giremi`.
 
 ```{bash}
-l-giremi.py \
+l-giremi \
     -t 8 \
     --bam_file $BAM_FILE \
     --output_prefix $OUTPREFIX \
@@ -195,7 +235,7 @@ l-giremi.py \
 
 ## Output
 
-`l-giremi.py` generates several result files.
+`l-giremi` generates several result files.
 
 * corrected read strand files: the files are saved my chromosome, and
   are stored as `$OUTPREFIX.$CHROMOSOME.strand`.
@@ -246,7 +286,7 @@ l-giremi.py \
 
 There are also some useful scripts for download anslysis provided with the main l-giremi script.
 
-### `get_aei.py`
+### `get_aei`
 
 `get_aei.py` is used for the calculation of Alu Editing Index (AEI)
 from long-read RNA-seq data [(Roth et al., 2019)][2]. Calculation of
@@ -254,7 +294,7 @@ AEI neads the read strand files (output of l-giremi.py), the genome
 fasta file, a txt file with Alu locations, and the SNP BCF reference.
 
 ```{bash}
-usage: get_aei.py [-h] -b BAM_FILE --strand_file STRAND_FILE [-c [CHROMOSOMES ...]] [-o OUTPUT_PREFIX]
+usage: get_aei [-h] -b BAM_FILE --strand_file STRAND_FILE [-c [CHROMOSOMES ...]] [-o OUTPUT_PREFIX]
                   --genome_fasta GENOME_FASTA --snp_bcf SNP_BCF --alu_txt ALU_TXT [-t THREAD]
 
 Calculate AEI from bam file, both in read level and Alu level
@@ -277,15 +317,15 @@ optional arguments:
                         cores to be used
 ```
 
-### `get_read_site.py`
+### `get_read_site`
 
-`get_read_site.py` output a table that has the read name, genomic
+`get_read_site` output a table that has the read name, genomic
 position, and the nucleotide of the position on the read. Running the
 script requires a file that provides the genomic position of sites
 that are interested.
 
 ```{bash}
-usage: get_read_site.py [-h] -s SITE_FILE -b BAM_FILE [-c [CHROMOSOMES ...]] [-o OUTPUT_PREFIX]
+usage: get_read_site [-h] -s SITE_FILE -b BAM_FILE [-c [CHROMOSOMES ...]] [-o OUTPUT_PREFIX]
                         [--mapq_threshold MAPQ_THRESHOLD] [-t THREAD]
 
 Get read and site information from bam file
@@ -306,15 +346,15 @@ optional arguments:
                         cores to be used
 ```
 
-### `get_read_mismatch.py`
+### `get_read_mismatch`
 
-`get_read_mismatch.py` is similar to `get_read_site.py`, except that
+`get_read_mismatch` is similar to `get_read_site.py`, except that
 it only output the read name and the mismatched sites, without matched
 sites. `get_read_mismatch.py` also requires a file that provides the
 genomic position of sites that are interested.
 
 ```{bash}
-usage: get_read_mismatch.py [-h] -s SITE_FILE -b BAM_FILE [-c [CHROMOSOMES ...]] [-o OUTPUT_PREFIX]
+usage: get_read_mismatch [-h] -s SITE_FILE -b BAM_FILE [-c [CHROMOSOMES ...]] [-o OUTPUT_PREFIX]
                             [--mapq_threshold MAPQ_THRESHOLD] [-t THREAD]
 
 Get read and mismatch site information from bam file
@@ -335,13 +375,13 @@ optional arguments:
                         cores to be used
 ```
 
-### `get_read_splice.py`
+### `get_read_splice`
 
-`get_read_splice.py` outputs read names and the splicing sites
+`get_read_splice` outputs read names and the splicing sites
 detected by minimap2 in the reads.
 
 ```{bash}
-usage: get_read_splice.py [-h] -b BAM_FILE [-c [CHROMOSOMES ...]] [-o OUTPUT_PREFIX]
+usage: get_read_splice [-h] -b BAM_FILE [-c [CHROMOSOMES ...]] [-o OUTPUT_PREFIX]
                           [--mapq_threshold MAPQ_THRESHOLD] [-t THREAD]
 
 Get read and splice sites from bam file
@@ -360,16 +400,16 @@ optional arguments:
                         cores to be used
 ```
 
-### `correct_splice_site.py`
+### `correct_splice_site`
 
 Since the raw splicing sites detected in the long-read RNA-seq data
 have many errors, the splicing sites should be corrected [(Wyman and
-Mortazavi, 2019)][3]. `correct_splice_site.py` adopted similar
+Mortazavi, 2019)][3]. `correct_splice_site` adopted similar
 correction strategies with TranscriptClean. The correction needs a GTF
 annotation file.
 
 ```{bash}
-usage: correct_splice_site.py [-h] -s SPLICE_FILE --annotation_gtf ANNOTATION_GTF
+usage: correct_splice_site [-h] -s SPLICE_FILE --annotation_gtf ANNOTATION_GTF
                               [-c [CHROMOSOMES ...]] [-o OUTPUT_PREFIX] [--window WINDOW]
 
 Correct splice sites by gtf file
@@ -387,13 +427,13 @@ optional arguments:
   --window WINDOW       window to be considered as the same splice site (default: 10)
 ```
 
-### `calculate_site_splice_mi.py`
+### `calculate_site_splice_mi`
 
-`calculate_site_splice_mi.py` can calculate the mutual information for
+`calculate_site_splice_mi` can calculate the mutual information for
 mismatched sites (RNA editing sites or SNPs) and splicing sites.
 
 ```{bash}
-usage: calculate_site_splice_mi.py [-h] [-m READ_SITE] [-s READ_SPLICE] [-o OUTPUT_PREFIX]
+usage: calculate_site_splice_mi [-h] [-m READ_SITE] [-s READ_SPLICE] [-o OUTPUT_PREFIX]
 
 calculate the mutual information of mismatch site and splice site pairs
 
@@ -408,14 +448,14 @@ optional arguments:
                         prefix of output file
 ```
 
-### `split_bam_by_site.py`
+### `split_bam_by_site`
 
-`split_bam_by_site.py` can fetch reads that cover one genomic location
+`split_bam_by_site` can fetch reads that cover one genomic location
 and save the reads into separated SAM files by the location, which can
 be used in IGV ploting.
 
 ```{bash}
-usage: split_bam_by_site.py [-h] -b BAM_FILE [-o OUTPUT_PREFIX] [-c CHROMOSOME] [-p POS]
+usage: split_bam_by_site [-h] -b BAM_FILE [-o OUTPUT_PREFIX] [-c CHROMOSOME] [-p POS]
 
 Save reads that cover one position into separated SAM files by the genomic location
 
@@ -429,7 +469,7 @@ optional arguments:
   -p POS, --pos POS
 ```
 
-## Reference
+***
 
 [1]: <http://www.nature.com/articles/nmeth.3314> "Zhang, Q., and Xiao, X. (2015). Genome sequence–independent identification of RNA editing sites. Nat Methods 12, 347–350."
 [2]: <http://www.nature.com/articles/s41592-019-0610-9> "Roth, S.H., Levanon, E.Y., and Eisenberg, E. (2019). Genome-wide quantification of ADAR adenosine-to-inosine RNA editing activity. Nat Methods 16, 1131–1138."

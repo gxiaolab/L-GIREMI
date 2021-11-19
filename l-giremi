@@ -10,8 +10,6 @@ from sklearn import linear_model
 from functools import partial
 from collections import defaultdict
 
-__version__ = '0.1.7'
-
 base_to_number = {"A" : 1, "C" : 2, "G" : 3, "T" : 4, "N" : 5}
 number_to_base = dict((v, k) for k, v in base_to_number.items())
 ntpairs = {'A' : 'T', 'C' : 'G', 'G' : 'C', 'T' : 'A', 'N' : 'N'}
@@ -1007,6 +1005,8 @@ def glm_score(data, train_data):
 
 
 if __name__ == '__main__':
+    VMAJOR, VMINOR, VMICRO = 0, 1, 8
+    VERSION = '{}.{}.{}'.format(VMAJOR, VMINOR, VMICRO)
     parser = argparse.ArgumentParser(
         description="L-GIREMI (Long-read RNA-seq Genome-independent Identification of RNA Editing by Mutual Information)"
     )
@@ -1159,7 +1159,7 @@ if __name__ == '__main__':
         type=int,
         default = 1
     )
-    parser.add_argument('--version', action='version', version='%(prog)s {0}'.format(__version__))
+    parser.add_argument('--version', action='version', version='%(prog)s {0}'.format(VERSION))
     args = parser.parse_args()
 
     variables = {
