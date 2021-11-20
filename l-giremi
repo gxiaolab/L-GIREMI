@@ -1005,7 +1005,7 @@ def glm_score(data, train_data):
 
 
 if __name__ == '__main__':
-    VMAJOR, VMINOR, VMICRO = 0, 1, 8
+    VMAJOR, VMINOR, VMICRO = 0, 1, 9
     VERSION = '{}.{}.{}'.format(VMAJOR, VMINOR, VMICRO)
     parser = argparse.ArgumentParser(
         description="L-GIREMI (Long-read RNA-seq Genome-independent Identification of RNA Editing by Mutual Information)"

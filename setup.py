@@ -8,7 +8,7 @@ with open('README.md', 'r', encoding='utf-8') as fh:
 
 setup(
     name='l-giremi',
-    version='0.1.8',
+    version='0.1.9',
     author='Zhiheng Liu',
     author_email='wolfsonliu@live.com',
     description='a software for analysis of RNA editing sites from long-read RNA-seq data',
@@ -22,7 +22,7 @@ setup(
         'Topic :: Scientific/Engineering :: Bio-Informatics'
     ],
     install_requires=[
-        'pysam', 'numpy', 'pandas', 'sklearn'
+        'pysam', 'numpy', 'pandas', 'scikit-learn'
     ],
     scripts = [
         'bin/calculate_site_splice_mi',

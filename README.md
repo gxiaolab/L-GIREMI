@@ -1,5 +1,7 @@
 # L-GIREMI
 
+[![](https://img.shields.io/badge/version-v0.1.9-blue)](https://pypi.org/project/l-giremi/)
+
 L-GIREMI (Long-read Genome-independent Identification of RNA Editing
 by Mutual Information) is a software for analysis of RNA editing sites
 from long-read RNA-seq data which adopts similar logic with the GIREMI
