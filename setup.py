@@ -8,13 +8,13 @@ with open('README.md', 'r', encoding='utf-8') as fh:
 
 setup(
     name='l-giremi',
-    version='0.1.10',
+    version='0.1.11',
     author='Zhiheng Liu',
     author_email='wolfsonliu@live.com',
     description='a software for analysis of RNA editing sites from long-read RNA-seq data',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    url='https://github.com/xiaolab/L-GIREMI',
+    url='https://github.com/gxiaolab/L-GIREMI',
     classifiers=[
         'Programming Language :: Python :: 3',
         'License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)',

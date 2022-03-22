@@ -1,11 +1,8 @@
 # L-GIREMI
 
-[![](https://img.shields.io/badge/version-v0.1.10-blue)](https://pypi.org/project/l-giremi/)
+[![](https://img.shields.io/badge/version-v0.1.11-blue)](https://pypi.org/project/l-giremi/)
 
-L-GIREMI (Long-read Genome-independent Identification of RNA Editing
-by Mutual Information) is a software for analysis of RNA editing sites
-from long-read RNA-seq data which adopts similar logic with the GIREMI
-software [(Zhang and Xiao, 2015)][1].
+L-GIREMI (Long-read Genome-independent Identification of RNA Editing by Mutual Information) is a method for identification of RNA editing sites from long-read RNA-seq data.
 
 ## Requirement
 
@@ -29,7 +26,7 @@ And the analysis with L-GIREMI also needs additional software:
 
 ### Installation
 
-It's advised to install the software into a virtual environment.
+It's recommended to install the software into a virtual environment.
 
 Create virtual environment:
 
@@ -69,25 +66,29 @@ pip install l-giremi
 
 ### Reference data
 
-Be aware to use reference files with same assembly version and the
-same chromosome name pattern in all the process.
+Users should make sure to use reference files with the same assembly
+version and the same chromosome naming convention in all the
+processes.
 
 #### Genome fasta file
 
-The L-GIREMI requires a genome fasta file as input. For human genome,
+L-GIREMI requires a genome fasta file as input. For the human genome,
 the fasta file can be obtained from
 [UCSC](https://hgdownload.cse.ucsc.edu/goldenpath/hg38/chromosomes/)
 or [NCBI](https://www.ncbi.nlm.nih.gov/genome/guide/human/). The fasta
 file should include sequences from all the chromosomes.
 
+
 #### SNP vcf file
 
-The L-GIREMI will use SNP vcf file to get putative heterozygous
-SNPs. dbSNP vcf are a possible reference. And it's even better to use
-sample specific SNP vcf files. The vcf files should be converted into
-bcf format, sorted, and indexed.
+L-GIREMI will use a SNP vcf file to get putative heterozygous SNPs. A
+vcf of dbSNP is acceptable. Alternatively, the users can provide a
+sample-specific SNP vcf file, if available. The vcf file should be
+converted into the bcf format, sorted, and indexed.
 
-The following is a example to convert the dbSNP chromosomes into UCSC chromosomes.
+The following is an example flow to obtain dbSNP vcf and convert the
+dbSNP chromosome names into UCSC format.
+
 
 ```{bash}
 wget "https://ftp.ncbi.nih.gov/snp/latest_release/VCF/GCF_000001405.38.gz"
@@ -107,11 +108,13 @@ bcftools index dbsnp.38.hg38.bcf
 
 #### Gene annotation gtf
 
-A gene annotation gtf is required for the L-GIREMI, which can be
-obtained from [gencode](https://www.gencodegenes.org/human/). The gtf
-file should be sorted, zipped, and indexed.
+A gene annotation gtf is required for L-GIREMI, which can be obtained
+from [gencode](https://www.gencodegenes.org/human/). The gtf file
+should be sorted, zipped, and indexed.
 
-The following are codes for gtf file preparation:
+
+The following is an example flow to prepare the gtf file:
+
 ```{bash}
 (grep ^"#" gencode.v37.annotation.gtf; \
     grep -v ^"#" gencode.v37.annotation.gtf | \
@@ -123,10 +126,11 @@ tabix -p gff gencode.v37.annotation.sorted.gtf.gz
 
 #### Simple repeat region table
 
-The simple repeat region table is used by L-GIREMI to filter sites. It
-can be obtained from [UCSC table
+
+A table containing annotated simple repeats is used by L-GIREMI to
+pre-filter sites. It can be obtained from [UCSC table
 browser](http://genome.ucsc.edu/cgi-bin/hgTables). The table format
-should be: chromosome, start, end. No header needed for the file.
+should be: chromosome, start, end. No header is needed for the file.
 
 ## Usage
 
@@ -190,7 +194,7 @@ optional arguments:
 
 ## Analysis process
 
-Running L-GIREMI requires some annotation files:
+Once the following files are available (see above):
 * reference FASTA file: for example hg38 fasta.
 * SNP VCF file: dbSNP VCF file (the chromosome names should be agreed
   with the reference FASTA file), or known SNP VCF file for teh
@@ -198,9 +202,9 @@ Running L-GIREMI requires some annotation files:
 * genome annotation GTF file: with exon annotation and gene
   annotation, for example GENCODE gtf file.
 
-Firstly, map the long-read RNA-seq fastq file using
-[minimap2](https://github.com/lh3/minimap2) with cs tag information
-provided, which is required by `l-giremi.py`.
+First, align the long-read RNA-seq fastq file using
+[minimap2](https://github.com/lh3/minimap2) with cs tag, which is
+required by `l-giremi`.
 
 ```{bash}
 minimap2 -t 8 -ax splice -uf \
@@ -208,8 +212,8 @@ minimap2 -t 8 -ax splice -uf \
          -o SAM_FILE GENOME_FILE FASTQ_FILE
 ```
 
-Then, remove unmapped and non-unique mapped reads from SAM file, and
-sort SAM into an indexed BAM file.
+Then, remove the unmapped and non-uniquely mapped reads from the SAM
+file, and sort it into an indexed BAM file.
 
 ```{bash}
 samtools view -O BAM -F 2052 -h $SAM_FILE | \
@@ -237,10 +241,9 @@ l-giremi \
 
 ## Output
 
-`l-giremi` generates several result files.
+`l-giremi` generates several output files:
 
-* corrected read strand files: the files are saved my chromosome, and
-  are stored as `$OUTPREFIX.$CHROMOSOME.strand`.
+* corrected read strand files: the files are stored as `$OUTPREFIX.strand`.
   columns:
   1. read_name: the read name.
   2. seq_strand: original read mapping strand.
@@ -307,13 +310,14 @@ l-giremi \
 
 ## Useful scripts
 
-There are also some useful scripts for download anslysis provided with the main l-giremi script.
+There are also some useful scripts provided with the main l-giremi
+code.
 
 ### `get_aei`
 
-`get_aei.py` is used for the calculation of Alu Editing Index (AEI)
-from long-read RNA-seq data [(Roth et al., 2019)][2]. Calculation of
-AEI neads the read strand files (output of l-giremi.py), the genome
+`get_aei` is used for the calculation of Alu Editing Index (AEI)
+from long-read RNA-seq data [(Roth et al., 2019)][1]. Calculation of
+AEI neads the read strand files (output of `l-giremi`), the genome
 fasta file, a txt file with Alu locations, and the SNP BCF reference.
 
 ```{bash}
@@ -371,9 +375,9 @@ optional arguments:
 
 ### `get_read_mismatch`
 
-`get_read_mismatch` is similar to `get_read_site.py`, except that
-it only output the read name and the mismatched sites, without matched
-sites. `get_read_mismatch.py` also requires a file that provides the
+`get_read_mismatch` is similar to `get_read_site`, except that
+it only outputs the read name and the mismatched sites, without matched
+sites. `get_read_mismatch` also requires a file that provides the
 genomic position of sites that are interested.
 
 ```{bash}
@@ -425,11 +429,9 @@ optional arguments:
 
 ### `correct_splice_site`
 
-Since the raw splicing sites detected in the long-read RNA-seq data
-have many errors, the splicing sites should be corrected [(Wyman and
-Mortazavi, 2019)][3]. `correct_splice_site` adopted similar
-correction strategies with TranscriptClean. The correction needs a GTF
-annotation file.
+Since the raw splice sites detected in the long-read RNA-seq data may
+not be accurate, a correction procedure is needed [(Wyman and Mortazavi, 2019)][2]. `correct_splice_site` adopted similar correction strategies with TranscriptClean. The correction needs a GTF annotation file.
+
 
 ```{bash}
 usage: correct_splice_site [-h] -s SPLICE_FILE --annotation_gtf ANNOTATION_GTF
@@ -474,7 +476,7 @@ optional arguments:
 ### `split_bam_by_site`
 
 `split_bam_by_site` can fetch reads that cover one genomic location
-and save the reads into separated SAM files by the location, which can
+and save the reads into separate SAM files by the location, which can
 be used in IGV ploting.
 
 ```{bash}
@@ -494,6 +496,5 @@ optional arguments:
 
 ***
 
-[1]: <http://www.nature.com/articles/nmeth.3314> "Zhang, Q., and Xiao, X. (2015). Genome sequence–independent identification of RNA editing sites. Nat Methods 12, 347–350."
-[2]: <http://www.nature.com/articles/s41592-019-0610-9> "Roth, S.H., Levanon, E.Y., and Eisenberg, E. (2019). Genome-wide quantification of ADAR adenosine-to-inosine RNA editing activity. Nat Methods 16, 1131–1138."
-[3]: <https://academic.oup.com/bioinformatics/article/35/2/340/5038460> "Wyman, D., and Mortazavi, A. (2019). TranscriptClean: variant-aware correction of indels, mismatches and splice junctions in long-read transcripts. Bioinformatics 35, 340–342."
+[1]: <http://www.nature.com/articles/s41592-019-0610-9> "Roth, S.H., Levanon, E.Y., and Eisenberg, E. (2019). Genome-wide quantification of ADAR adenosine-to-inosine RNA editing activity. Nat Methods 16, 1131–1138."
+[2]: <https://academic.oup.com/bioinformatics/article/35/2/340/5038460> "Wyman, D., and Mortazavi, A. (2019). TranscriptClean: variant-aware correction of indels, mismatches and splice junctions in long-read transcripts. Bioinformatics 35, 340–342."
