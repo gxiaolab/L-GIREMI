@@ -8,7 +8,7 @@ with open('README.md', 'r', encoding='utf-8') as fh:
 
 setup(
     name='l-giremi',
-    version='0.1.9',
+    version='0.1.10',
     author='Zhiheng Liu',
     author_email='wolfsonliu@live.com',
     description='a software for analysis of RNA editing sites from long-read RNA-seq data',

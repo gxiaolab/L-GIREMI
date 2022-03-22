@@ -9,8 +9,13 @@ from functools import partial
 ####################
 
 
-def alu_df_aei(alu, variables):
+def chrom_entropy(chrom, variables):
     genome = pysam.FastaFile(variables['genome_file'])
+
+    region = pd.read_table(
+        variables['region_file'], header = 0, sep = '\t'
+    )
+    region = region.loc[region['chromosome'] == chrom]
 
     strand = pd.read_table(variables['strand_file'], header = 0, sep = '\t')
     strand.index = strand['read_name']
@@ -21,15 +26,16 @@ def alu_df_aei(alu, variables):
 
     read_count_df_list = list()
 
-    for ri, row in alu.iterrows():
+    for ri, row in region.iterrows():
         chrom = row['chromosome']
         start = row['start']
         end = row['end']
         name = row['name']
-        alu_label = '{}:{}-{}:{}'.format(
+        region_label = '{}:{}-{}:{}'.format(
             chrom, start, end, name
         )
-        in_alu_snp_pos = [
+
+        in_region_snp_pos = [
             a.start for a in vcf.fetch(chrom, start, end)
         ]
 
@@ -53,15 +59,16 @@ def alu_df_aei(alu, variables):
             nt_edit = 'C'
 
         refnt = genome.fetch(chrom, start, end).upper()
-        in_alu_pos = list(
+        in_region_pos_all = list(
             np.where([a == nt for a in list(refnt)])[0] + start
         )
 
-        in_alu_pos_check = [
-            a for a in in_alu_pos if a not in in_alu_snp_pos
+        in_region_pos = [
+            a for a in in_region_pos_all
+            if a not in in_region_snp_pos
         ]
 
-        if len(in_alu_pos_check) == 0:
+        if len(in_region_pos) == 0:
             continue
         pos_df_list = list()
         # calculate read and nt for each position
@@ -69,7 +76,7 @@ def alu_df_aei(alu, variables):
                                        start = start,
                                        end = end):
             pos = pileupcolumn.pos
-            if pos in in_alu_pos_check:
+            if pos in in_region_pos:
                 raw_read_names = pileupcolumn.get_query_names()
                 raw_read_seqs = [
                     a.upper() for a in pileupcolumn.get_query_sequences()
@@ -87,7 +94,7 @@ def alu_df_aei(alu, variables):
                 if len(read_names) > 0:
                     pos_df = pd.DataFrame(
                         {
-                            'alu': [alu_label] * len(read_names),
+                            'region': [region_label] * len(read_names),
                             'pos': [pos] * len(read_names),
                             'read_name': read_names,
                             'nt': [
@@ -102,12 +109,12 @@ def alu_df_aei(alu, variables):
             # no items for the alu
             continue
 
-        alu_df = pd.concat(pos_df_list)
-        if alu_df.shape[0] == 0:
+        region_df = pd.concat(pos_df_list)
+        if region_df.shape[0] == 0:
             # no items for the alu, redundant
             continue
-        read_count_df = alu_df.groupby(
-            ['alu', 'read_name']
+        read_count_df = region_df.groupby(
+            ['region', 'read_name']
         )['nt'].value_counts()
 
         read_count_df.name = 'count'
@@ -116,50 +123,83 @@ def alu_df_aei(alu, variables):
             read_count_df.reset_index(drop = False)
         )
 
-    # calculate read aei
+    # calculate read statistic
     if len(read_count_df_list) > 0:
-        read_aei = pd.concat(
+        read_nt = pd.concat(
             read_count_df_list
         ).set_index(
-            ['alu', 'read_name', 'nt']
+            ['region', 'read_name', 'nt']
         ).unstack(fill_value=0).reset_index()
         # rename the columns
-        colname = [read_aei.columns[0][0],
-                   read_aei.columns[1][0]]
-        for i in range(2, len(read_aei.columns)):
-            colname += [read_aei.columns[i][1]]
-        read_aei.columns = colname
+        colname = [read_nt.columns[0][0],
+                   read_nt.columns[1][0]]
+        for i in range(2, len(read_nt.columns)):
+            colname += [read_nt.columns[i][1]]
+        read_nt.columns = colname
         for x in ['ref', 'alt']:
-            if x not in read_aei.columns:
-                read_aei.loc[:, x] = 0
+            if x not in read_nt.columns:
+                read_nt.loc[:, x] = 0
             else:
                 pass
-        # calculate AEI
-        read_aei.loc[:, 'aei'] = read_aei['alt'] / (
-            read_aei['alt'] + read_aei['ref']
-        ) * 100
+        # calculate ratio
+        read_nt.loc[:, 'ratio'] = read_nt['alt'] / (
+            read_nt['alt'] + read_nt['ref']
+        )
+        read_nt.loc[:, 'ratio_bin'] = pd.cut(
+            read_nt['ratio'],
+            bins = [-0.1, 0.2, 0.4, 0.6, 0.8, 1]
+        )
+        # calculate entropy
+        region_count = read_nt[
+            ['region', 'read_name']
+        ].groupby(
+            ['region']
+        )['read_name'].count().reset_index()
+        ratio_bin = pd.merge(
+            read_nt[
+                ['region', 'read_name', 'ratio_bin']
+            ].groupby(
+                ['region', 'ratio_bin']
+            )['read_name'].count(
+            ).reset_index(),
+            region_count,
+            how = 'inner',
+            left_on = 'region',
+            right_on = 'region'
+        )
+        ratio_bin.columns = [
+            'region', 'ratio_bin',
+            'bin_rc', 'region_rc'
+        ]
+        ratio_bin = ratio_bin.loc[
+            ratio_bin['bin_rc'] > 0
+        ]
+        ratio_bin.loc[:, 'p'] = ratio_bin['bin_rc'] / ratio_bin['region_rc']
+        ratio_bin.loc[:, 'logp'] = np.log10(
+            ratio_bin.loc[:, 'p']
+        )
+        ratio_bin.loc[:, 'plogp'] = ratio_bin['p'] * ratio_bin['logp']
+        entropy = ratio_bin[
+            ['region', 'region_rc', 'plogp']
+        ].groupby(
+            ['region', 'region_rc']
+        )['plogp'].sum().reset_index()
 
-        # calculate aei
-        aei = read_aei[
-            ['alu', 'read_name', 'alt', 'ref']
-        ].groupby('alu')[['alt', 'ref']].sum().reset_index()
-
-        aei.loc[:, 'aei'] = aei['alt'] / (
-            aei['alt'] + aei['ref']
-        ) * 100
+        entropy.loc[:, 'entropy'] = - entropy['plogp']
+        del entropy['plogp']
+        entropy.columns = ['region', 'region_read_count', 'entropy']
     else:
-        read_aei = None
-        aei = None
+        entropy = None
     sam.close()
     vcf.close()
-    return read_aei, aei
+    return entropy
 
 ####################
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description="Calculate AEI from bam file, both in read level and Alu level"
+        description="Calculate Shannon entropy for regions from bam file"
     )
     parser.add_argument(
         "-b", "--bam_file",
@@ -208,8 +248,8 @@ if __name__ == '__main__':
         required=True
     )
     parser.add_argument(
-        "--alu_txt",
-        help = "path of bed file of simple repeats [chromosom, start, end, name] (0 based)",
+        "--region_txt",
+        help = "path of bed file of regions [chromosom, start, end, name] (0 based)",
         type=str,
         default=None,
         required=True
@@ -228,47 +268,28 @@ if __name__ == '__main__':
         'outprefix': args.output_prefix,
         'genome_file': args.genome_fasta,
         'snp_file': args.snp_bcf,
-        'alu_file': args.alu_txt
+        'region_file': args.region_txt
     }
 
-    alu = pd.read_table(
-        variables['alu_file'], header = 0, sep = '\t'
-    )
-    alu = alu.loc[alu['chromosome'].isin(args.chromosomes)].copy()
-    alu_df_list = [
-        alu.loc[alu.index.values % args.thread == i].copy()
-        for i in range(args.thread)
-    ]
-
     with mp.Pool(args.thread) as p:
-        df_result = p.map(
-            partial(alu_df_aei, variables=variables),
-            alu_df_list
+        chrom_result = p.map(
+            partial(chrom_entropy,
+                    variables=variables),
+            args.chromosomes
         )
 
-    read_aei_list = list()
-    aei_list = list()
-    for c_read_aei, c_aei in df_result:
-        if c_read_aei is not None:
-            read_aei_list.append(c_read_aei)
+    entropy_list = list()
+    for c_entropy in chrom_result:
+        if c_entropy is not None:
+            entropy_list.append(c_entropy)
         else:
             pass
-        if c_aei is not None:
-            aei_list.append(c_aei)
-        else:
-            pass
-    if len(read_aei_list) > 0:
-        read_aei = pd.concat(read_aei_list, axis = 0)
-        read_aei.to_csv(
-            variables['outprefix'] + '.read_aei',
-            sep = '\t', index = False
+    if len(entropy_list) > 0:
+        entropy = pd.concat(
+            entropy_list, axis = 0
         )
-    else:
-        pass
-    if len(aei_list) > 0:
-        aei = pd.concat(aei_list, axis = 0)
-        aei.to_csv(
-            variables['outprefix'] + '.aei',
+        entropy.to_csv(
+            variables['outprefix'] + '.entropy',
             sep = '\t', index = False
         )
     else:

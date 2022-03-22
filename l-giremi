@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import re
+import logging
 import pysam
 import pandas as pd
 import numpy as np
@@ -680,18 +681,21 @@ def mutual_information(mm_info, rc_i,
             # check overlap of reads between SNVs (Jakarta index)
             jakarta = lc/len(set(var1_reads) | set(var2_reads))
 
-
             if lc < mi_testable_common_reads:
                 continue
 
-            base_to_number = {"A":1, "C":2, "G":3, "T":4, "N":5}
+            base_to_number = {"A": 1, "C": 2, "G": 3, "T": 4, "N": 5}
             mat = np.zeros((lc, 2))
             for i, r in enumerate(common_reads):
                 mat[i][0] = base_to_number[var1_reads[r]]
                 mat[i][1] = base_to_number[var2_reads[r]]
 
-            var1_alleles, var1_allele_counts = np.unique(mat[:, 0], return_counts = True)
-            var2_alleles, var2_allele_counts = np.unique(mat[:, 1], return_counts = True)
+            var1_alleles, var1_allele_counts = np.unique(
+                mat[:, 0], return_counts = True
+            )
+            var2_alleles, var2_allele_counts = np.unique(
+                mat[:, 1], return_counts = True
+            )
 
             # Only selecting pairs of SNVs that have mono >= mi_testable_mono (1)
             if any(AC > lc - mi_testable_mono for AC in var1_allele_counts):
@@ -1004,8 +1008,81 @@ def glm_score(data, train_data):
     return result
 
 
+def score_performance(tp, tn, score):
+    tp.loc[:, 'id'] = tp.apply(
+        lambda a: '{}:{}:{}:{}:{}'.format(
+            a['type'], a['chromosome'], a['pos'],
+            a['strand'], a['change_type']
+        ),
+        axis = 1
+    )
+
+    tn.loc[:, 'id'] = tn.apply(
+        lambda a: '{}:{}:{}:{}:{}'.format(
+            a['type'], a['chromosome'], a['pos'],
+            a['strand'], a['change_type']
+        ),
+        axis = 1
+    )
+
+    score.loc[:, 'id'] = score.apply(
+        lambda a: '{}:{}:{}:{}:{}'.format(
+            a['type'], a['chromosome'], a['pos'],
+            a['strand'], a['change_type']
+        ),
+        axis = 1
+    )
+
+    scoredf = pd.DataFrame(
+        {
+            'score': score['score'].sort_values(
+                ascending = False
+            ).unique()
+        }
+    )
+    scoredf.loc[:, 'tp'] = scoredf['score'].apply(
+        lambda a:
+        len(np.intersect1d(
+            score.loc[score['score'] >= a, 'id'].values,
+            tp['id'].values
+        ))
+    )
+    scoredf.loc[:, 'fp'] = scoredf['score'].apply(
+        lambda a:
+        len(np.intersect1d(
+            score.loc[score['score'] >= a, 'id'].values,
+            tn['id'].values
+        ))
+    )
+    scoredf.loc[:, 'fn'] = tp.shape[0] - scoredf['tp']
+    scoredf.loc[:, 'tn'] = tn.shape[0] - scoredf['fp']
+    scoredf.loc[:, 'precision'] = scoredf['tp'] / (
+        scoredf['tp'] + scoredf['fp']
+    )
+
+    scoredf.loc[:, 'recall'] = scoredf['tp'] / (
+        scoredf['tp'] + scoredf['fn']
+    )
+
+    scoredf.loc[:, 'f1'] = 2 * scoredf['precision'] * scoredf['recall'] / (
+        scoredf['precision'] + scoredf['recall']
+    )
+
+    scoredf.loc[:, 'sensitivity'] = scoredf['recall']
+    scoredf.loc[:, 'specificity'] = scoredf['tn'] / (
+        scoredf['tn'] + scoredf['fp']
+    )
+
+    scoredf.loc[:, 'tpr'] = scoredf['recall']
+    scoredf.loc[:, 'fpr'] = scoredf['fp'] / (scoredf['fp'] + scoredf['tn'])
+    scoredf
+    scoredf.loc[:, 'max_f1'] = False
+    scoredf.loc[scoredf['f1'].argmax(), 'max_f1'] = True
+    return scoredf
+
+
 if __name__ == '__main__':
-    VMAJOR, VMINOR, VMICRO = 0, 1, 9
+    VMAJOR, VMINOR, VMICRO = 0, 1, 10
     VERSION = '{}.{}.{}'.format(VMAJOR, VMINOR, VMICRO)
     parser = argparse.ArgumentParser(
         description="L-GIREMI (Long-read RNA-seq Genome-independent Identification of RNA Editing by Mutual Information)"
@@ -1186,13 +1263,28 @@ if __name__ == '__main__':
         'gtf_file' : args.annotation_gtf
     }
 
+    # logging
+
+    logging.basicConfig(
+        encoding='utf-8',
+        format='%(asctime)s %(levelname)s %(message)s',
+        level=logging.INFO
+    )
+
+    # run processing on each chromosome
+    message = 'Calculation of mismatch sites from each chromosome starts.'
+    logging.info(message)
     with mp.Pool(args.thread) as p:
         result = p.map(
             partial(chrom_calculation, variables = variables),
             args.chromosomes
         )
+    message = 'Calculation of mismatch sites from each chromosome finished.'
+    logging.info(message)
 
     # gethering data
+    message = 'Combining results from each chromosome.'
+    logging.info(message)
     strand_list = list()
     site_list = list()
     mm_info_list = list()
@@ -1207,55 +1299,95 @@ if __name__ == '__main__':
         if mi_info_df is not None:
             mi_info_list.append(mi_info_df)
 
-    stranddf = pd.concat(strand_list, axis = 0)
-    stranddf.to_csv(
-        variables['outprefix'] + '.strand',
-        sep = '\t', index = False
-    )
+    if len(strand_list) > 0:
+        stranddf = pd.concat(strand_list, axis = 0)
+        stranddf.to_csv(
+            variables['outprefix'] + '.strand',
+            sep = '\t', index = False
+        )
+    else:
+        pass
     del strand_list
 
-    sitedf = pd.concat(site_list, axis = 0)
-    sitedf.to_csv(
-        variables['outprefix'] + '.site',
-        sep = '\t', index = False
-    )
+    if len(site_list) > 0:
+        sitedf = pd.concat(site_list, axis = 0)
+        sitedf.to_csv(
+            variables['outprefix'] + '.site',
+            sep = '\t', index = False
+        )
+    else:
+        pass
     del site_list
 
-    mmdf = pd.concat(mm_info_list, axis = 0)
-    mmdf = get_site_nearbyseq(mmdf, variables['genome_file'])
+    mmdf = None
+    if len(mm_info_list) > 0:
+        mmdf = pd.concat(mm_info_list, axis = 0)
+        mmdf = get_site_nearbyseq(mmdf, variables['genome_file'])
+    else:
+        pass
     del mm_info_list
 
     # mi and mi p value
-    midf = pd.concat(mi_info_list, axis = 0)
-    miecdf = ecdf(midf.loc[midf['type'] == 'het_snp', 'mi'])
-    midf.loc[:, 'mip'] = midf['mi'].map(miecdf)
-    midf.to_csv(
-        variables['outprefix'] + '.mi',
-        sep = '\t', index = False
-    )
+    midf = None
+    if len(mi_info_list) > 0:
+        midf = pd.concat(mi_info_list, axis = 0)
+        miecdf = ecdf(midf.loc[midf['type'] == 'het_snp', 'mi'])
+        midf.loc[:, 'mip'] = midf['mi'].map(miecdf)
+        midf.to_csv(
+            variables['outprefix'] + '.mi',
+            sep = '\t', index = False
+        )
+    else:
+        pass
     del mi_info_list
 
     # GLM score
-    train_data = midf[
+    message = 'Calculating RNA editing scores.'
+    logging.info(message)
+    if midf is not None and mmdf is not None:
+        train_data_pos = midf.loc[
+            (midf['mip'] <= variables['mip_threshold']) &
+            (midf['type'] == 'mismatch'),
             ['type', 'chromosome', 'pos',
              'strand', 'change_type', 'mi', 'mip']
-    ].copy()
-    train_data.loc[: , 'label'] = train_data.apply(
-        lambda x: ['other', 'edit'][
-            int(x['type'] == 'mismatch') and
-            (float(x['mip']) <= variables['mip_threshold'])
-        ],
-        axis = 1
-    )
-    train_data = pd.merge(
-        train_data, mmdf,
-        on = ['type', 'chromosome', 'pos',
-              'strand', 'change_type'],
-        how = 'inner'
-    )
-    result = glm_score(mmdf, train_data)
-    result.to_csv(
-        variables['outprefix'] + '.score',
-        sep = '\t', index = False
-    )
+        ].copy().reset_index(drop = True)
+        train_data_pos.loc[:, 'label'] = 'edit'
+        pos_num = train_data_pos.shape[0]
+        train_data_neg = midf.loc[
+            (midf['mip'] > variables['mip_threshold']) &
+            (midf['type'] != 'mismatch'),
+            ['type', 'chromosome', 'pos',
+             'strand', 'change_type', 'mi', 'mip']
+        ].copy().reset_index(drop = True)
+        neg_num = train_data_neg.shape[0]
+        train_data_neg.loc[:, 'label'] = 'other'
+        bnum = min(pos_num, neg_num)
+        train_data = pd.concat([
+            train_data_pos.sample(n = bnum, replace = False),
+            train_data_neg.sample(n = bnum, replace = False)
+        ])
+        train_data = pd.merge(
+            train_data, mmdf,
+            on = ['type', 'chromosome', 'pos',
+                  'strand', 'change_type'],
+            how = 'inner'
+        )
+        result = glm_score(mmdf, train_data)
+        result.to_csv(
+            variables['outprefix'] + '.score',
+            sep = '\t', index = False
+        )
+        scorepf = score_performance(
+            tp = train_data_pos.copy(),
+            tn = train_data_neg.copy(),
+            score = result
+        )
+        scorepf.to_csv(
+            variables['outprefix'] + '.score_performance',
+            sep = '\t', index = False
+        )
+    else:
+        logging.warning('No result can be produced.')
+    message = 'All done!'
+    logging.info(message)
 ####################

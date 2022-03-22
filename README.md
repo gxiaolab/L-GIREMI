@@ -1,6 +1,6 @@
 # L-GIREMI
 
-[![](https://img.shields.io/badge/version-v0.1.9-blue)](https://pypi.org/project/l-giremi/)
+[![](https://img.shields.io/badge/version-v0.1.10-blue)](https://pypi.org/project/l-giremi/)
 
 L-GIREMI (Long-read Genome-independent Identification of RNA Editing
 by Mutual Information) is a software for analysis of RNA editing sites
@@ -12,7 +12,7 @@ software [(Zhang and Xiao, 2015)][1].
 The L-GIREMI software was developed with python3 on Linux, which
 demands several python packages.
 
-* python3.5+: with sys, argparse, re, functools, collections,
+* python3.5+: with sys, argparse, re, logging, functools, collections,
   multiprocessing.
 * [scikit-learn](https://scikit-learn.org): 0.20+
 * [scipy](https://www.scipy.org): 1.5+
@@ -283,6 +283,27 @@ l-giremi \
   9. up_seq: a 5' nucleotide ahead of the mismatch sites.
   10. down_seq: a 3' nucleotide after the mismatch sites.
   11. score: RNA editing score by the GLM model.
+* score performance file: stored as `$OUTPREFIX.score_performance`.
+  columns:
+  1. score: score from mismatch score file
+  2. tp: true positive count, the number of sites with score larger
+     than or equal to the score in the line used as positive training
+     data
+  3. fp: false positive count, the number of sites with score larger
+     than or equal to the score in the line used as negative training
+     data
+  4. fn: false negative count, the number of sites with score smaller
+     than the score in the line used as positive training data
+  5. tn: true negative count, the number of sites with score smaller
+     than the score in the line used as negative training data
+  6. precision: tp / (tp + fp)
+  7. recall: tp / (tp + fn)
+  8. f1: 2 * (precision * recall) / (precision + recall)
+  9. sensitivity: tp / (tp + fn)
+  10. specificity: tn / (tn + fp)
+  11. tpr: true positive rate, tp / (tp + fn)
+  12. fpr: false positive rate, fp / (fp + tn)
+  13. max_f1: bool, indicating the max f1
 
 ## Useful scripts
 
