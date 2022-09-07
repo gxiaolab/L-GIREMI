@@ -1,6 +1,6 @@
 # L-GIREMI
 
-[![](https://img.shields.io/badge/version-v0.1.11-blue)](https://pypi.org/project/l-giremi/)
+[![](https://img.shields.io/badge/version-v0.1.12-blue)](https://pypi.org/project/l-giremi/)
 
 L-GIREMI (Long-read Genome-independent Identification of RNA Editing by Mutual Information) is a method for identification of RNA editing sites from long-read RNA-seq data.
 
@@ -166,8 +166,8 @@ optional arguments:
                         Min MAPQ to be considered in bam file (default: 20)
   --min_allele_count MIN_ALLELE_COUNT
                         Min allele read count (default: 2)
-  --drop_non_spliced_read DROP_NON_SPLICED_READ
-                        Drop non spliced reads (default: True)
+  --keep_non_spliced_read
+                        Keep non spliced reads (default: without this parameter, reads without splicing would be dropped.)
   --min_dist_from_splice MIN_DIST_FROM_SPLICE
                         Drop sites within the distance from splice junctions (default: 4)
   --gene_padding GENE_PADDING
@@ -190,6 +190,8 @@ optional arguments:
                         Min read for a variant of a site in a site pair to calculate MI (default: 1)
   --mip_threshold MIP_THRESHOLD
                         MI p value threshold to be used to separate RNA editing sites (default: 0.05)
+  --mi_calculation_only
+                        Only calculate the mutual information, without the modeling step. (default: calculate the steps after the MI step)
 ```
 
 ## Analysis process
@@ -238,6 +240,29 @@ l-giremi \
     chr13 chr14 chr15 chr16 chr17 chr18 chr19 \
     chr20 chr21 chr22 chrX chrY
 ```
+
+### Only MI calculation
+
+If only the MI calculation is needed, for the purpose of saving time,
+you can set the parameter to ignore the steps after the MI step.
+
+```{bash}
+l-giremi \
+    -t 8 \
+    --bam_file $BAM_FILE \
+    --output_prefix $OUTPREFIX \
+    --genome_fasta $GENOME_FILE \
+    --snp_bcf $SNP_FILE \
+    --repeat_txt $REPEAT_FILE \
+    --annotation_gtf $GTF_FILE \
+    --chromosomes chr1 chr2 chr3 chr4 \
+    chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 \
+    chr13 chr14 chr15 chr16 chr17 chr18 chr19 \
+    chr20 chr21 chr22 chrX chrY \
+    --mi_calculation_only
+```
+
+And, only the mutual information result would be output.
 
 ## Output
 

@@ -102,7 +102,7 @@ def cs_to_df(cs_string, pos):
 def get_mismatch_from_cs(bam_file, chrom,
                          mapq_threshold = 20,
                          min_allele_count=2,
-                         drop_non_spliced_read=True,
+                         keep_non_spliced_read=False,
                          min_dist_from_splice=4):
     """
     Obtain mismatch coordinates from the cs tags in the bam file
@@ -120,9 +120,13 @@ def get_mismatch_from_cs(bam_file, chrom,
         cs = cs_to_df(read.get_tag('cs'), pos)
         cs_splice = cs.loc[cs['ope'] == '~']
         cs_mismatch = cs.loc[cs['ope'] == '*']
-        if drop_non_spliced_read:
+        if not keep_non_spliced_read:
             if cs_splice.shape[0] == 0:
                 continue
+            else:
+                pass
+        else:
+            pass
         if cs_mismatch.shape[0] > 0:
             if cs_splice.shape[0] > 0:
                 select_idx = ~cs_mismatch['low'].map(
@@ -370,7 +374,7 @@ def correct_read_strand(bam_file, gtf_file, chrom,
                         mapq_threshold = 20,
                         gene_padding = 500,
                         exon_padding = 10,
-                        drop_non_spliced_read = True):
+                        keep_non_spliced_read = False):
     sam = pysam.AlignmentFile(bam_file, 'rb')
     gtf = pysam.TabixFile(gtf_file)
     read_name_list = []
@@ -383,9 +387,13 @@ def correct_read_strand(bam_file, gtf_file, chrom,
         seq_ref_low = read.reference_start
         seq_ref_high = read.reference_end
         cs = cs_to_df(read.get_tag('cs'), seq_ref_low)
-        if drop_non_spliced_read:
+        if not keep_non_spliced_read:
             if ~(cs['ope'] == '~').any():
                 continue
+            else:
+                pass
+        else:
+            pass
         gtf_list = list()
         for gtf_entry in gtf.fetch(
                 chrom,
@@ -849,7 +857,7 @@ def chrom_calculation(chrom, variables):
         variables['bam_file'], chrom,
         mapq_threshold=variables['mapq_threshold'],
         min_allele_count=variables['min_allele_count'],
-        drop_non_spliced_read=variables['drop_non_spliced_read'],
+        keep_non_spliced_read=variables['keep_non_spliced_read'],
         min_dist_from_splice=variables['min_dist_from_splice']
     )
     site_df = filter_mismatch_homopoly(
@@ -1082,7 +1090,7 @@ def score_performance(tp, tn, score):
 
 
 if __name__ == '__main__':
-    VMAJOR, VMINOR, VMICRO = 0, 1, 11
+    VMAJOR, VMINOR, VMICRO = 0, 1, 12
     VERSION = '{}.{}.{}'.format(VMAJOR, VMINOR, VMICRO)
     parser = argparse.ArgumentParser(
         description="L-GIREMI (Long-read RNA-seq Genome-independent Identification of RNA Editing by Mutual Information)"
@@ -1153,10 +1161,9 @@ if __name__ == '__main__':
         default=2
     )
     parser.add_argument(
-        "--drop_non_spliced_read",
-        help = "Drop non spliced reads (default: True)",
-        type=bool,
-        default=True
+        "--keep_non_spliced_read",
+        help = "Keep non spliced reads (default: without this parameter, reads without splicing would be dropped.)",
+        action = 'store_true'
     )
     parser.add_argument(
         "--min_dist_from_splice",
@@ -1231,6 +1238,11 @@ if __name__ == '__main__':
         default=0.05
     )
     parser.add_argument(
+        "--mi_calculation_only",
+        help = "Only calculate the mutual information, without the modeling step. (default: calculate the steps after the MI step)",
+        action = 'store_true'
+    )
+    parser.add_argument(
         "-t", "--thread",
         help = "cores to be used",
         type=int,
@@ -1242,7 +1254,7 @@ if __name__ == '__main__':
     variables = {
         'mapq_threshold' : args.mapq_threshold,
         'min_allele_count' : args.min_allele_count,
-        'drop_non_spliced_read' : args.drop_non_spliced_read,
+        'keep_non_spliced_read' : args.keep_non_spliced_read,
         'min_dist_from_splice' : args.min_dist_from_splice,
         'gene_padding' : args.gene_padding,
         'exon_padding' : args.exon_padding,
@@ -1260,7 +1272,8 @@ if __name__ == '__main__':
         'genome_file' : args.genome_fasta,
         'snp_file' : args.snp_bcf,
         'repeat_file' : args.repeat_txt,
-        'gtf_file' : args.annotation_gtf
+        'gtf_file' : args.annotation_gtf,
+        'mi_calculation_only': args.mi_calculation_only
     }
 
     # logging
@@ -1341,53 +1354,56 @@ if __name__ == '__main__':
         pass
     del mi_info_list
 
-    # GLM score
-    message = 'Calculating RNA editing scores.'
-    logging.info(message)
-    if midf is not None and mmdf is not None:
-        train_data_pos = midf.loc[
-            (midf['mip'] <= variables['mip_threshold']) &
-            (midf['type'] == 'mismatch'),
-            ['type', 'chromosome', 'pos',
-             'strand', 'change_type', 'mi', 'mip']
-        ].copy().reset_index(drop = True)
-        train_data_pos.loc[:, 'label'] = 'edit'
-        pos_num = train_data_pos.shape[0]
-        train_data_neg = midf.loc[
-            (midf['mip'] > variables['mip_threshold']) &
-            (midf['type'] != 'mismatch'),
-            ['type', 'chromosome', 'pos',
-             'strand', 'change_type', 'mi', 'mip']
-        ].copy().reset_index(drop = True)
-        neg_num = train_data_neg.shape[0]
-        train_data_neg.loc[:, 'label'] = 'other'
-        bnum = min(pos_num, neg_num)
-        train_data = pd.concat([
-            train_data_pos.sample(n = bnum, replace = False),
-            train_data_neg.sample(n = bnum, replace = False)
-        ])
-        train_data = pd.merge(
-            train_data, mmdf,
-            on = ['type', 'chromosome', 'pos',
-                  'strand', 'change_type'],
-            how = 'inner'
-        )
-        result = glm_score(mmdf, train_data)
-        result.to_csv(
-            variables['outprefix'] + '.score',
-            sep = '\t', index = False
-        )
-        scorepf = score_performance(
-            tp = train_data_pos.copy(),
-            tn = train_data_neg.copy(),
-            score = result
-        )
-        scorepf.to_csv(
-            variables['outprefix'] + '.score_performance',
-            sep = '\t', index = False
-        )
+    if not variables['mi_calculation_only']:
+        # GLM score
+        message = 'Calculating RNA editing scores.'
+        logging.info(message)
+        if midf is not None and mmdf is not None:
+            train_data_pos = midf.loc[
+                (midf['mip'] <= variables['mip_threshold']) &
+                (midf['type'] == 'mismatch'),
+                ['type', 'chromosome', 'pos',
+                 'strand', 'change_type', 'mi', 'mip']
+            ].copy().reset_index(drop = True)
+            train_data_pos.loc[:, 'label'] = 'edit'
+            pos_num = train_data_pos.shape[0]
+            train_data_neg = midf.loc[
+                (midf['mip'] > variables['mip_threshold']) &
+                (midf['type'] != 'mismatch'),
+                ['type', 'chromosome', 'pos',
+                 'strand', 'change_type', 'mi', 'mip']
+            ].copy().reset_index(drop = True)
+            neg_num = train_data_neg.shape[0]
+            train_data_neg.loc[:, 'label'] = 'other'
+            bnum = min(pos_num, neg_num)
+            train_data = pd.concat([
+                train_data_pos.sample(n = bnum, replace = False),
+                train_data_neg.sample(n = bnum, replace = False)
+            ])
+            train_data = pd.merge(
+                train_data, mmdf,
+                on = ['type', 'chromosome', 'pos',
+                      'strand', 'change_type'],
+                how = 'inner'
+            )
+            result = glm_score(mmdf, train_data)
+            result.to_csv(
+                variables['outprefix'] + '.score',
+                sep = '\t', index = False
+            )
+            scorepf = score_performance(
+                tp = train_data_pos.copy(),
+                tn = train_data_neg.copy(),
+                score = result
+            )
+            scorepf.to_csv(
+                variables['outprefix'] + '.score_performance',
+                sep = '\t', index = False
+            )
+        else:
+            logging.warning('No result can be produced for the GLM step.')
     else:
-        logging.warning('No result can be produced.')
+        pass
     message = 'All done!'
     logging.info(message)
 ####################
