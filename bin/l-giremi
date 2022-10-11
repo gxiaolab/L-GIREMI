@@ -1,0 +1,416 @@
+#! /usr/bin/env python3
+import argparse
+import pysam
+import logging
+import pandas as pd
+import numpy as np
+import multiprocessing as mp
+from functools import partial
+from giremi.footprint import get_footprints
+from giremi.fileio import read_simple_repeat_intervals, read_snp_positions_in_chrom
+from giremi.mismatch import region_mismatch_analysis
+from giremi.stat import ecdf, glm_score, score_performance
+from giremi.strand import correct_read_strand_in_chrom
+
+
+def footprint_bulk_calculation(footprints, variables, read_strand_dict):
+    logger = mp.get_logger()
+    logger.setLevel(logging.INFO)
+
+    sam = pysam.AlignmentFile(variables['bam_file'], 'rb')
+    genome = pysam.FastaFile(variables['genome_file'])
+    vcf = pysam.VariantFile(variables['snp_file'])
+
+    repeats = read_simple_repeat_intervals(variables['repeat_file'])
+
+    chromosome_list = list(set([a[0] for a in footprints]))
+    # get snps for the chromosomes in the bulk
+    snp_position_dict = dict()
+    for chrom in chromosome_list:
+        snp_position_dict[chrom] = read_snp_positions_in_chrom(vcf, chrom)
+
+    mismatch_df_list = []
+    mi_df_list = []
+    for footprint in footprints:
+        chromosome, start_pos, end_pos, rc = footprint
+        # get snps in the footprint
+        snp_positions = [
+            pos
+            for pos in snp_position_dict[chrom]
+            if (pos >= start_pos and pos <= end_pos)
+        ]
+        # get simple repeats in the footprint
+        simple_repeat_intervals = [
+            [rs, re]
+            for rs, re in repeats[chromosome]
+            if (rs > end_pos) or (re < start_pos)
+        ]
+        message = '    region: {}-{}:{}, get mismatches.'.format(
+            chromosome, start_pos, end_pos
+        )
+        logger.info(message)
+        df_mismatches, df_mis_pair_mi = region_mismatch_analysis(
+            chromosome, start_pos, end_pos, sam, genome,
+            simple_repeat_intervals = simple_repeat_intervals,
+            snp_positions = snp_positions,
+            keep_non_spliced_read = variables['keep_non_spliced_read'],
+            min_dist_from_splice = variables['min_dist_from_splice'],
+            min_allele_depth = variables['min_allele_depth'],
+            min_allele_ratio = variables['min_allele_ratio'],
+            min_total_depth = variables['min_total_depth'],
+            homopoly_length = variables['homopoly_length'],
+            min_het_snp_ratio = variables['min_het_snp_ratio'],
+            max_het_snp_ratio = variables['max_het_snp_ratio'],
+            mode = variables['mode'],
+            min_common_reads = variables['mi_min_common_reads'],
+            read_strand_dict = read_strand_dict[chromosome]
+        )
+        mismatch_df_list.append(df_mismatches)
+        mi_df_list.append(df_mis_pair_mi)
+        message = '    region: {}-{}:{}, finished.'.format(
+            chromosome, start_pos, end_pos
+        )
+        logger.info(message)
+    mismatch_df = pd.concat(mismatch_df_list, axis = 0)
+    mi_df = pd.concat(mi_df_list, axis = 0)
+    sam.close()
+    genome.close()
+    vcf.close()
+    return mismatch_df, mi_df
+
+
+def run_glm(mmdf, mip_threshold = 0.05, model = 'lm'):
+    train_data_pos = mmdf.loc[
+        mmdf['mean_mi'].notna() &
+        (mmdf['mip'] <= mip_threshold) &
+        (mmdf['type'] == 'mismatch'),
+        ['type', 'chromosome', 'pos',
+         'strand', 'change_type', 'mean_mi', 'mip']
+    ].copy().reset_index(drop = True)
+    train_data_pos.loc[:, 'label'] = 'train_edit'
+    pos_num = train_data_pos.shape[0]
+    train_data_neg = mmdf.loc[
+        mmdf['mean_mi'].notna() &
+        (mmdf['mip'] > mip_threshold) &
+        (mmdf['type'] != 'mismatch'),
+        ['type', 'chromosome', 'pos',
+         'strand', 'change_type', 'mean_mi', 'mip']
+    ].copy().reset_index(drop = True)
+    neg_num = train_data_neg.shape[0]
+    train_data_neg.loc[:, 'label'] = 'train_other'
+    bnum = min(pos_num, neg_num)
+    train_data = pd.concat([
+        train_data_pos.sample(n = bnum, replace = False),
+        train_data_neg.sample(n = bnum, replace = False)
+    ])
+    mmdf_labeled = pd.merge(
+        mmdf, train_data[['type', 'chromosome', 'pos', 'strand', 'change_type', 'label']],
+        on = ['type', 'chromosome', 'pos',
+              'strand', 'change_type'],
+        how = 'left'
+    )
+    # select functions according to features
+    glmresult = glm_score(mmdf_labeled, model)
+
+    scorepf = score_performance(
+        tp = train_data_pos.copy(),
+        tn = train_data_neg.copy(),
+        score = glmresult
+    )
+    return glmresult, scorepf
+
+
+if __name__ == '__main__':
+    VMAJOR, VMINOR, VMICRO = 0, 2, 0
+    VERSION = '{}.{}.{}'.format(VMAJOR, VMINOR, VMICRO)
+    parser = argparse.ArgumentParser(
+        description="L-GIREMI (Long-read RNA-seq Genome-independent Identification of RNA Editing by Mutual Information)"
+    )
+    parser.add_argument(
+        "-b", "--bam_file",
+        help="input bam file, with cs tags, sorted and indexed",
+        type=str,
+        default=None,
+        required=True
+    )
+    parser.add_argument(
+        "-c", "--chromosomes",
+        help = "chromosomes to be analyzed",
+        nargs='*',
+        type=str,
+        default = ['chr1', 'chr2', 'chr3', 'chr4',
+                   'chr5', 'chr6', 'chr7', 'chr8',
+                   'chr9', 'chr10', 'chr11', 'chr12',
+                   'chr13', 'chr14', 'chr15', 'chr16',
+                   'chr17', 'chr18', 'chr19', 'chr20',
+                   'chr21', 'chr22', 'chrX', 'chrY']
+    )
+    parser.add_argument(
+        "-o", "--output_prefix",
+        help = "prefix of output file",
+        type=str,
+        default = 'out'
+    )
+    parser.add_argument(
+        "--genome_fasta",
+        help = "path of genome fasta file",
+        type=str,
+        default=None,
+        required=True
+    )
+    parser.add_argument(
+        "--snp_bcf",
+        help = "path of dbSNP bcf file",
+        type=str,
+        default=None,
+        required=True
+    )
+    parser.add_argument(
+        "--repeat_txt",
+        help = "path of txt file of simple repeats [chromosom, start, end] (0 based)",
+        type=str,
+        default=None,
+        required=True
+    )
+    parser.add_argument(
+        "--annotation_gtf",
+        help = "gtf (gz and tabix indexed) file of genome annotation (gencode)",
+        type=str,
+        default=None,
+        required=True
+    )
+    parser.add_argument(
+        "--min_allele_ratio",
+        help = "Min mismatch ratio to be considered (default: 0.05)",
+        type=float,
+        default=0.05
+    )
+    parser.add_argument(
+        "--min_allele_depth",
+        help = "Min mismatch allele read count to be considered (default: 3)",
+        type=int,
+        default=3
+    )
+    parser.add_argument(
+        "--min_total_depth",
+        help = "Min mismatch total read count to be considered (default: 6)",
+        type=int,
+        default=2
+    )
+    parser.add_argument(
+        "--keep_non_spliced_read",
+        help = "Keep non spliced reads (default: without this parameter, reads without splicing would be dropped.)",
+        action = 'store_true'
+    )
+    parser.add_argument(
+        "--min_dist_from_splice",
+        help = "Drop sites within the distance from splice junctions (default: 4)",
+        type=int,
+        default=4
+    )
+    parser.add_argument(
+        "--gene_padding",
+        help = "expand the range when searching gene gtf (default: 500)",
+        type=int,
+        default=500
+    )
+    parser.add_argument(
+        "--exon_padding",
+        help = "expand the range when searching exon gtf (default: 10)",
+        type=int,
+        default=10
+    )
+    parser.add_argument(
+        "--homopoly_length",
+        help = "left and right sequence length to be searched for the homopoly around sites (default: 5)",
+        type=int,
+        default=5
+    )
+    parser.add_argument(
+        "--min_het_snp_ratio",
+        help = "Min ratio to be considered as heterogenous SNPs (default: 0.35)",
+        type=float,
+        default=0.35
+    )
+    parser.add_argument(
+        "--max_het_snp_ratio",
+        help = "Max ratio to be considered as heterogenous SNPs (default: 0.65)",
+        type=float,
+        default=0.65
+    )
+    parser.add_argument(
+        "--mi_min_common_read",
+        help = "Min common read for site pairs to calculate MI (default: 6)",
+        type=int,
+        default=6
+    )
+    parser.add_argument(
+        "--mip_threshold",
+        help = "MI p value threshold to be used to separate RNA editing sites (default: 0.05)",
+        type=float,
+        default=0.05
+    )
+    parser.add_argument(
+        "--mi_calculation_only",
+        help = "Only calculate the mutual information, without the modeling step. (default: calculate the steps after the MI step)",
+        action = 'store_true'
+    )
+    parser.add_argument(
+        "--mode",
+        help = "Mode to find mismatches in BAM: with cs tags (cs), or CIGAR and MD tags (cigar). (defalt: cs)",
+        type = str,
+        default = 'cs'
+    )
+    parser.add_argument(
+        "--model",
+        help = "GLM model for scoring: lm, logistic. (defalt: lm)",
+        type = str,
+        default = 'lm'
+    )
+    parser.add_argument(
+        "-t", "--thread",
+        help = "cores to be used",
+        type=int,
+        default = 1
+    )
+    parser.add_argument('--version', action='version', version='%(prog)s {0}'.format(VERSION))
+    args = parser.parse_args()
+
+    variables = {
+        'min_allele_ratio' : args.min_allele_ratio,
+        'min_allele_depth' : args.min_allele_depth,
+        'min_total_depth' : args.min_total_depth,
+        'keep_non_spliced_read' : args.keep_non_spliced_read,
+        'min_dist_from_splice' : args.min_dist_from_splice,
+        'gene_padding' : args.gene_padding,
+        'exon_padding' : args.exon_padding,
+        'homopoly_length' : args.homopoly_length,
+        'min_het_snp_ratio' : args.min_het_snp_ratio,
+        'max_het_snp_ratio' : args.max_het_snp_ratio,
+        'mi_min_common_reads' : args.mi_min_common_read,
+        'mip_threshold' : args.mip_threshold,
+        'bam_file' : args.bam_file,
+        'outprefix' : args.output_prefix,
+        'genome_file' : args.genome_fasta,
+        'snp_file' : args.snp_bcf,
+        'repeat_file' : args.repeat_txt,
+        'gtf_file' : args.annotation_gtf,
+        'mi_calculation_only': args.mi_calculation_only,
+        'model': args.model,
+        'mode': args.mode
+    }
+
+    # logging
+
+    logging.basicConfig(
+        encoding='utf-8',
+        format='%(asctime)s %(levelname)s %(message)s',
+        level=logging.INFO
+    )
+
+    # read_strand
+    message = 'Correct read strand.'
+    logging.info(message)
+    with mp.Pool(args.thread) as p:
+        read_strand_result = p.map(
+            partial(correct_read_strand_in_chrom,
+                    bam_file = variables['bam_file'],
+                    gtf_file = variables['gtf_file'],
+                    genome_file = variables['genome_file'],
+                    gene_padding = variables['gene_padding'],
+                    exon_padding = variables['exon_padding'],
+                    keep_non_spliced_read = variables['keep_non_spliced_read'],
+                    mode = variables['mode']),
+            args.chromosomes
+        )
+
+    read_strand_dict = dict()
+    with open(variables['outprefix'] + '.strand.txt', 'w') as f:
+        f.write('read_name\tcorrected_strand\n')
+        for chrom, read_strand_list in read_strand_result:
+            read_strand_dict[chrom] = dict(read_strand_list)
+            for read_name, corrected_read_strand in read_strand_list:
+                f.write('{}\t{}\n'.format(read_name, corrected_read_strand))
+
+    # footprint depth use variables['min_total_depth']
+    message = 'Get regions with reads.'
+    logging.info(message)
+    footprints = get_footprints(
+        variables['bam_file'], args.chromosomes, variables['min_total_depth']
+    )
+    n = int(len(footprints) / args.thread)
+    footprint_chunk = []
+    for i in range(0, len(footprints), n):
+        footprint_chunk.append(footprints[i:(i + n)])
+
+    # calculate mismaches
+    message = 'Calculate mismatches in each region.'
+    logging.info(message)
+    with mp.Pool(args.thread) as p:
+        footprint_result = p.map(
+            partial(footprint_bulk_calculation,
+                    variables = variables,
+                    read_strand_dict = read_strand_dict),
+            footprint_chunk
+        )
+    mismatch_df_list = []
+    mi_df_list = []
+    for dfmismatch, dfmi in footprint_result:
+        mismatch_df_list.append(dfmismatch)
+        mi_df_list.append(dfmi)
+
+    mismatch_df = pd.concat(mismatch_df_list, axis = 0)
+    mi_df = pd.concat(mi_df_list, axis = 0)
+
+    # output mi table
+    mi_df.to_csv(
+        variables['outprefix'] + '.mi.txt',
+        sep = '\t', index = False
+    )
+    if not variables['mi_calculation_only']:
+        # calculate MI empirical p values
+        message = 'Score the RNA editing sites.'
+        logging.info(message)
+
+        mismatch_df.loc[:, 'mip'] = np.nan
+
+        if mismatch_df['mean_mi'].notna().sum() > 0:
+            miecdf = ecdf(
+                mismatch_df.loc[
+                    mismatch_df['mean_mi'].notna() &
+                    (mismatch_df['type'] == 'het_snp'),
+                    'mean_mi'
+                ]
+            )
+            mismatch_df.loc[:, 'mip'] = mismatch_df.apply(
+                lambda a: miecdf(a['mean_mi'])
+                if not np.isnan(a['mean_mi']) else np.nan,
+                axis = 1
+            )
+        else:
+            pass
+
+        # run GLM model
+        glmresult, scorepf = run_glm(
+            mismatch_df,
+            mip_threshold = variables['mip_threshold'],
+            model = variables['model']
+        )
+
+        del glmresult['label']
+        del glmresult['id']
+        # output mismatch table
+        glmresult.to_csv(
+            variables['outprefix'] + '.mismatch.txt',
+            sep = '\t', index = False
+        )
+        scorepf.to_csv(
+            variables['outprefix'] + '.score_performance.txt',
+            sep = '\t', index = False
+        )
+    else:
+        pass
+    message = 'All done!'
+    logging.info(message)
+
+########################################

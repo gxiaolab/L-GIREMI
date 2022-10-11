@@ -8,10 +8,10 @@ with open('README.md', 'r', encoding='utf-8') as fh:
 
 setup(
     name='l-giremi',
-    version='0.1.12',
+    version='0.2.0',
     author='Zhiheng Liu',
     author_email='wolfsonliu@live.com',
-    description='a software for analysis of RNA editing sites from long-read RNA-seq data',
+    description='A software for analysis of RNA editing sites from long-read RNA-seq data',
     long_description=long_description,
     long_description_content_type='text/markdown',
     url='https://github.com/gxiaolab/L-GIREMI',
@@ -33,7 +33,8 @@ setup(
         'bin/get_read_site',
         'bin/get_read_splice',
         'bin/split_bam_by_site',
-        'l-giremi'
+        'bin/l-giremi'
     ],
+    package_dir={'giremi': 'giremi'},
     python_requires='>=3.6',
 )
