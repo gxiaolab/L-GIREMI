@@ -1,6 +1,6 @@
 # L-GIREMI
 
-[![](https://img.shields.io/badge/version-v0.2.0-blue)](https://pypi.org/project/l-giremi/)
+[![](https://img.shields.io/badge/version-v0.2.1-blue)](https://pypi.org/project/l-giremi/)
 
 L-GIREMI (Long-read Genome-independent Identification of RNA Editing by Mutual Information) is a method for identification of RNA editing sites from long-read RNA-seq data.
 
@@ -267,7 +267,7 @@ And, only the mutual information result would be output.
 * corrected read strand files: the files are stored as `$OUTPREFIX.strand.txt`.
   columns:
   1. read_name: the read name.
-  2. corrected_read_strand: corrected read strand.
+  2. corrected\_read\_strand: corrected read strand.
 * mutual information files: stored as `$OUTPREFIX.mi.txt`.
   columns:
   1. chromosome: chromosome name.
@@ -287,11 +287,11 @@ And, only the mutual information result would be output.
   2. chromosome: chromosome name.
   3. pos: position on the chromosome, 0-based.
   4. strand: strand of the mismatch sites.
-  5. change_type: the mismatch type, [ref]>[alt].
+  5. change\_type: the mismatch type, [ref]>[alt].
   6. ratio: the mismatch ratio.
   7. depth: the total read count for the site.
   8. A:C:T:G: read counts for A, C, T, G, not strand specific.
-  9. up_seq: a 5' nucleotide ahead of the mismatch sites.
+  9. up\_seq: a 5' nucleotide ahead of the mismatch sites.
   10. down_seq: a 3' nucleotide after the mismatch sites.
   11. mean\_mi: mean mutual information with the het\_snps, empty if not applicable.
   12. mip: emperical p value of the MI, empty if not applicable.
@@ -316,7 +316,7 @@ And, only the mutual information result would be output.
   10. specificity: tn / (tn + fp)
   11. tpr: true positive rate, tp / (tp + fn)
   12. fpr: false positive rate, fp / (fp + tn)
-  13. max_f1: bool, indicating the max f1
+  13. max\_f1: bool, indicating the max f1
 
 ## Useful scripts
 

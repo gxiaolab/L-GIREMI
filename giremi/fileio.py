@@ -21,7 +21,7 @@ def read_simple_repeat_intervals(repeat_file):
     return simple_repeat_intervals
 
 
-def read_snp_positions_in_regions(vcf, chromosome, start_pos, end_pos):
+def read_snp_positions_in_region(vcf, chromosome, start_pos, end_pos):
     snp_pos = []
     # location 0 based
     for a in vcf.fetch(chromosome, start_pos, end_pos):

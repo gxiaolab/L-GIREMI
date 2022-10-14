@@ -7,48 +7,48 @@ import numpy as np
 import multiprocessing as mp
 from functools import partial
 from giremi.footprint import get_footprints
-from giremi.fileio import read_simple_repeat_intervals, read_snp_positions_in_chrom
+from giremi.fileio import read_simple_repeat_intervals, read_snp_positions_in_region
 from giremi.mismatch import region_mismatch_analysis
 from giremi.stat import ecdf, glm_score, score_performance
-from giremi.strand import correct_read_strand_in_chrom
+from giremi.strand import correct_read_strand_in_region
 
 
-def footprint_bulk_calculation(footprints, variables, read_strand_dict):
-    logger = mp.get_logger()
-    logger.setLevel(logging.INFO)
-
+def footprint_bulk_calculation(footprints, variables):
     sam = pysam.AlignmentFile(variables['bam_file'], 'rb')
     genome = pysam.FastaFile(variables['genome_file'])
     vcf = pysam.VariantFile(variables['snp_file'])
+    gtf = pysam.TabixFile(variables['gtf_file'])
 
     repeats = read_simple_repeat_intervals(variables['repeat_file'])
 
-    chromosome_list = list(set([a[0] for a in footprints]))
-    # get snps for the chromosomes in the bulk
-    snp_position_dict = dict()
-    for chrom in chromosome_list:
-        snp_position_dict[chrom] = read_snp_positions_in_chrom(vcf, chrom)
-
     mismatch_df_list = []
     mi_df_list = []
+    strand_list = []
     for footprint in footprints:
         chromosome, start_pos, end_pos, rc = footprint
+        # correct read strand
+        if not variables['skip_strand_correction']:
+            chromosome, read_strand_list = correct_read_strand_in_region(
+                chromosome, start_pos, end_pos,
+                sam, gtf, genome,
+                variables['gene_padding'], variables['exon_padding'],
+                keep_non_spliced_read = variables['keep_non_spliced_read'],
+                mode = variables['mode']
+            )
+            strand_list.extend(read_strand_list)
+            read_strand_dict = dict(read_strand_list)
+        else:
+            read_strand_dict = None
         # get snps in the footprint
-        snp_positions = [
-            pos
-            for pos in snp_position_dict[chrom]
-            if (pos >= start_pos and pos <= end_pos)
-        ]
+        snp_positions = read_snp_positions_in_region(
+            vcf, chromosome, start_pos, end_pos
+        )
         # get simple repeats in the footprint
         simple_repeat_intervals = [
             [rs, re]
             for rs, re in repeats[chromosome]
             if (rs > end_pos) or (re < start_pos)
         ]
-        message = '    region: {}-{}:{}, get mismatches.'.format(
-            chromosome, start_pos, end_pos
-        )
-        logger.info(message)
         df_mismatches, df_mis_pair_mi = region_mismatch_analysis(
             chromosome, start_pos, end_pos, sam, genome,
             simple_repeat_intervals = simple_repeat_intervals,
@@ -63,20 +63,21 @@ def footprint_bulk_calculation(footprints, variables, read_strand_dict):
             max_het_snp_ratio = variables['max_het_snp_ratio'],
             mode = variables['mode'],
             min_common_reads = variables['mi_min_common_reads'],
-            read_strand_dict = read_strand_dict[chromosome]
+            read_strand_dict = read_strand_dict
         )
         mismatch_df_list.append(df_mismatches)
         mi_df_list.append(df_mis_pair_mi)
-        message = '    region: {}-{}:{}, finished.'.format(
-            chromosome, start_pos, end_pos
-        )
-        logger.info(message)
     mismatch_df = pd.concat(mismatch_df_list, axis = 0)
     mi_df = pd.concat(mi_df_list, axis = 0)
+    strand_df = pd.DataFrame.from_records(
+        strand_list,
+        columns = ['read_name', 'read_strand']
+    )
     sam.close()
     genome.close()
     vcf.close()
-    return mismatch_df, mi_df
+    gtf.close()
+    return mismatch_df, mi_df, strand_df
 
 
 def run_glm(mmdf, mip_threshold = 0.05, model = 'lm'):
@@ -121,7 +122,7 @@ def run_glm(mmdf, mip_threshold = 0.05, model = 'lm'):
 
 
 if __name__ == '__main__':
-    VMAJOR, VMINOR, VMICRO = 0, 2, 0
+    VMAJOR, VMINOR, VMICRO = 0, 2, 1
     VERSION = '{}.{}.{}'.format(VMAJOR, VMINOR, VMICRO)
     parser = argparse.ArgumentParser(
         description="L-GIREMI (Long-read RNA-seq Genome-independent Identification of RNA Editing by Mutual Information)"
@@ -148,54 +149,34 @@ if __name__ == '__main__':
     parser.add_argument(
         "-o", "--output_prefix",
         help = "prefix of output file",
-        type=str,
+        type = str,
         default = 'out'
     )
     parser.add_argument(
-        "--genome_fasta",
-        help = "path of genome fasta file",
-        type=str,
-        default=None,
-        required=True
-    )
-    parser.add_argument(
-        "--snp_bcf",
-        help = "path of dbSNP bcf file",
-        type=str,
-        default=None,
-        required=True
-    )
-    parser.add_argument(
-        "--repeat_txt",
-        help = "path of txt file of simple repeats [chromosom, start, end] (0 based)",
-        type=str,
-        default=None,
-        required=True
+        "-t", "--thread",
+        help = "cores to be used",
+        type = int,
+        default = 1
     )
     parser.add_argument(
         "--annotation_gtf",
         help = "gtf (gz and tabix indexed) file of genome annotation (gencode)",
-        type=str,
-        default=None,
-        required=True
+        type = str,
+        default = None,
+        required = True
     )
     parser.add_argument(
-        "--min_allele_ratio",
-        help = "Min mismatch ratio to be considered (default: 0.05)",
-        type=float,
-        default=0.05
+        "--genome_fasta",
+        help = "path of genome fasta file",
+        type = str,
+        default = None,
+        required = True
     )
     parser.add_argument(
-        "--min_allele_depth",
-        help = "Min mismatch allele read count to be considered (default: 3)",
-        type=int,
-        default=3
-    )
-    parser.add_argument(
-        "--min_total_depth",
-        help = "Min mismatch total read count to be considered (default: 6)",
-        type=int,
-        default=2
+        "--homopoly_length",
+        help = "left and right sequence length to be searched for the homopoly around sites (default: 5)",
+        type = int,
+        default = 5
     )
     parser.add_argument(
         "--keep_non_spliced_read",
@@ -203,57 +184,57 @@ if __name__ == '__main__':
         action = 'store_true'
     )
     parser.add_argument(
-        "--min_dist_from_splice",
-        help = "Drop sites within the distance from splice junctions (default: 4)",
-        type=int,
-        default=4
-    )
-    parser.add_argument(
-        "--gene_padding",
-        help = "expand the range when searching gene gtf (default: 500)",
-        type=int,
-        default=500
-    )
-    parser.add_argument(
-        "--exon_padding",
-        help = "expand the range when searching exon gtf (default: 10)",
-        type=int,
-        default=10
-    )
-    parser.add_argument(
-        "--homopoly_length",
-        help = "left and right sequence length to be searched for the homopoly around sites (default: 5)",
-        type=int,
-        default=5
-    )
-    parser.add_argument(
-        "--min_het_snp_ratio",
-        help = "Min ratio to be considered as heterogenous SNPs (default: 0.35)",
-        type=float,
-        default=0.35
-    )
-    parser.add_argument(
         "--max_het_snp_ratio",
         help = "Max ratio to be considered as heterogenous SNPs (default: 0.65)",
-        type=float,
-        default=0.65
-    )
-    parser.add_argument(
-        "--mi_min_common_read",
-        help = "Min common read for site pairs to calculate MI (default: 6)",
-        type=int,
-        default=6
-    )
-    parser.add_argument(
-        "--mip_threshold",
-        help = "MI p value threshold to be used to separate RNA editing sites (default: 0.05)",
-        type=float,
-        default=0.05
+        type = float,
+        default = 0.65
     )
     parser.add_argument(
         "--mi_calculation_only",
         help = "Only calculate the mutual information, without the modeling step. (default: calculate the steps after the MI step)",
         action = 'store_true'
+    )
+    parser.add_argument(
+        "--mi_min_common_read",
+        help = "Min common read for site pairs to calculate MI (default: 6)",
+        type = int,
+        default = 6
+    )
+    parser.add_argument(
+        "--mi_p_threshold",
+        help = "MI p value threshold to be used to separate RNA editing sites (default: 0.05)",
+        type = float,
+        default = 0.05
+    )
+    parser.add_argument(
+        "--min_allele_depth",
+        help = "Min mismatch allele read count to be considered (default: 3)",
+        type = int,
+        default = 3
+    )
+    parser.add_argument(
+        "--min_allele_ratio",
+        help = "Min mismatch ratio to be considered (default: 0.05)",
+        type = float,
+        default = 0.05
+    )
+    parser.add_argument(
+        "--min_het_snp_ratio",
+        help = "Min ratio to be considered as heterogenous SNPs (default: 0.35)",
+        type = float,
+        default = 0.35
+    )
+    parser.add_argument(
+        "--min_total_depth",
+        help = "Min mismatch total read count to be considered (default: 6)",
+        type = int,
+        default = 2
+    )
+    parser.add_argument(
+        "--min_dist_from_splice",
+        help = "Drop sites within the distance from splice junctions (default: 4)",
+        type = int,
+        default = 4
     )
     parser.add_argument(
         "--mode",
@@ -268,36 +249,66 @@ if __name__ == '__main__':
         default = 'lm'
     )
     parser.add_argument(
-        "-t", "--thread",
-        help = "cores to be used",
-        type=int,
-        default = 1
+        "--padding_exon",
+        help = "expand the range when searching exon gtf (default: 10)",
+        type = int,
+        default = 10
     )
-    parser.add_argument('--version', action='version', version='%(prog)s {0}'.format(VERSION))
+    parser.add_argument(
+        "--padding_gene",
+        help = "expand the range when searching gene gtf (default: 500)",
+        type = int,
+        default = 500
+    )
+    parser.add_argument(
+        "--repeat_txt",
+        help = "path of txt file of simple repeats [chromosom, start, end] (0 based)",
+        type = str,
+        default = None,
+        required = True
+    )
+    parser.add_argument(
+        "--skip_strand_correction",
+        help = "skip the strand correction step to save runtime.",
+        action = 'store_true'
+    )
+    parser.add_argument(
+        "--snp_bcf",
+        help = "path of dbSNP bcf file",
+        type = str,
+        default = None,
+        required = True
+    )
+    parser.add_argument(
+        '--version',
+        action = 'version',
+        version = '%(prog)s {0}'.format(VERSION)
+    )
     args = parser.parse_args()
 
     variables = {
-        'min_allele_ratio' : args.min_allele_ratio,
-        'min_allele_depth' : args.min_allele_depth,
-        'min_total_depth' : args.min_total_depth,
-        'keep_non_spliced_read' : args.keep_non_spliced_read,
-        'min_dist_from_splice' : args.min_dist_from_splice,
-        'gene_padding' : args.gene_padding,
-        'exon_padding' : args.exon_padding,
-        'homopoly_length' : args.homopoly_length,
-        'min_het_snp_ratio' : args.min_het_snp_ratio,
-        'max_het_snp_ratio' : args.max_het_snp_ratio,
-        'mi_min_common_reads' : args.mi_min_common_read,
-        'mip_threshold' : args.mip_threshold,
         'bam_file' : args.bam_file,
-        'outprefix' : args.output_prefix,
         'genome_file' : args.genome_fasta,
-        'snp_file' : args.snp_bcf,
-        'repeat_file' : args.repeat_txt,
         'gtf_file' : args.annotation_gtf,
+        'outprefix' : args.output_prefix,
+        'repeat_file' : args.repeat_txt,
+        'snp_file' : args.snp_bcf,
+        'exon_padding' : args.padding_exon,
+        'gene_padding' : args.padding_gene,
+        'homopoly_length' : args.homopoly_length,
+        'keep_non_spliced_read' : args.keep_non_spliced_read,
+        'max_het_snp_ratio' : args.max_het_snp_ratio,
+        'min_allele_depth' : args.min_allele_depth,
+        'min_allele_ratio' : args.min_allele_ratio,
+        'min_dist_from_splice' : args.min_dist_from_splice,
+        'min_het_snp_ratio' : args.min_het_snp_ratio,
+        'min_total_depth' : args.min_total_depth,
+        'mip_threshold' : args.mi_p_threshold,
+        'mi_min_common_reads' : args.mi_min_common_read,
         'mi_calculation_only': args.mi_calculation_only,
+        'mode': args.mode,
         'model': args.model,
-        'mode': args.mode
+        'skip_strand_correction': args.skip_strand_correction,
     }
 
     # logging
@@ -308,37 +319,13 @@ if __name__ == '__main__':
         level=logging.INFO
     )
 
-    # read_strand
-    message = 'Correct read strand.'
-    logging.info(message)
-    with mp.Pool(args.thread) as p:
-        read_strand_result = p.map(
-            partial(correct_read_strand_in_chrom,
-                    bam_file = variables['bam_file'],
-                    gtf_file = variables['gtf_file'],
-                    genome_file = variables['genome_file'],
-                    gene_padding = variables['gene_padding'],
-                    exon_padding = variables['exon_padding'],
-                    keep_non_spliced_read = variables['keep_non_spliced_read'],
-                    mode = variables['mode']),
-            args.chromosomes
-        )
-
-    read_strand_dict = dict()
-    with open(variables['outprefix'] + '.strand.txt', 'w') as f:
-        f.write('read_name\tcorrected_strand\n')
-        for chrom, read_strand_list in read_strand_result:
-            read_strand_dict[chrom] = dict(read_strand_list)
-            for read_name, corrected_read_strand in read_strand_list:
-                f.write('{}\t{}\n'.format(read_name, corrected_read_strand))
-
     # footprint depth use variables['min_total_depth']
     message = 'Get regions with reads.'
     logging.info(message)
     footprints = get_footprints(
         variables['bam_file'], args.chromosomes, variables['min_total_depth']
     )
-    n = int(len(footprints) / args.thread)
+    n = int(len(footprints) / args.thread / 2)
     footprint_chunk = []
     for i in range(0, len(footprints), n):
         footprint_chunk.append(footprints[i:(i + n)])
@@ -349,19 +336,26 @@ if __name__ == '__main__':
     with mp.Pool(args.thread) as p:
         footprint_result = p.map(
             partial(footprint_bulk_calculation,
-                    variables = variables,
-                    read_strand_dict = read_strand_dict),
+                    variables = variables),
             footprint_chunk
         )
     mismatch_df_list = []
     mi_df_list = []
-    for dfmismatch, dfmi in footprint_result:
+    strand_df_list = []
+    for dfmismatch, dfmi, dfstrand in footprint_result:
         mismatch_df_list.append(dfmismatch)
         mi_df_list.append(dfmi)
+        strand_df_list.append(dfstrand)
 
     mismatch_df = pd.concat(mismatch_df_list, axis = 0)
     mi_df = pd.concat(mi_df_list, axis = 0)
+    strand_df = pd.concat(strand_df_list, axis = 0)
 
+    # output strand table
+    strand_df.to_csv(
+        variables['outprefix'] + '.strand.txt',
+        sep = '\t', index = False
+    )
     # output mi table
     mi_df.to_csv(
         variables['outprefix'] + '.mi.txt',

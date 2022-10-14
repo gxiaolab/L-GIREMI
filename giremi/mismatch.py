@@ -4,7 +4,8 @@ from collections import defaultdict
 from .cs import CS
 from .utils import merge_intervals
 from .utils import positions_in_intervals
-from .mutual_information import mismatch_pair_mutual_info, mean_mismatch_pair_mutual_info
+from .mutual_information import mismatch_pair_mutual_info
+from .mutual_information import mean_mismatch_pair_mutual_info
 
 
 def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
@@ -63,7 +64,8 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
             # using CIGAR string and MD tags instead
             cigar_string = read.cigarstring
             md_tag_string = read.get_tag('MD')
-            read_seq = read.query_sequence    # reverse complemented for the reversed reads
+            read_seq = read.query_sequence
+            # reverse complemented for the reversed reads
             ref_seq = genome.fetch(
                 chromosome, read.reference_start, read.reference_end
             )
@@ -71,12 +73,16 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
                 cigar_string, md_tag_string, read_seq, ref_seq,
                 chromosome, read.reference_start, read_strand
             )
-        read_mismatches = [[a[0], a[3]] for a in read_CS.get_mismatches(coordinate = 'contig')]
+        read_mismatches = [
+            [a[0], a[3]]
+            for a in read_CS.get_mismatches(coordinate = 'contig')
+        ]
         read_mismatches.sort(key = lambda a: a[0])
         # read_mismatches is a list with [ref_start_pos, "ag"]
         read_introns = read_CS.get_introns(coordinate = 'contig')
         read_introns.sort(key = lambda a: a[0])
-        # read_introns is a list with [ref_start_pos, ref_end_pos, '~', 'gt[length]ag']
+        # read_introns is a list with
+        # [ref_start_pos, ref_end_pos, '~', 'gt[length]ag']
 
         # check whether the are splicing in the read
         if not keep_non_spliced_read:
@@ -94,7 +100,10 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
                 splicing_pos = intron_starts + intron_ends
                 splicing_pos.sort()
                 splicing_intervals, _ = merge_intervals(
-                    [[a - min_dist_from_splice, a + min_dist_from_splice] for a in splicing_pos]
+                    [
+                        [a - min_dist_from_splice, a + min_dist_from_splice]
+                        for a in splicing_pos
+                    ]
                 )
                 in_intervals, interval_id = positions_in_intervals(
                     [a[0] for a in read_mismatches],
@@ -104,11 +113,14 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
                 in_intervals = [False for a in read_mismatches]
 
             read_mismatches_rm_splicing = [
-                a for a, in_interval in zip(read_mismatches, in_intervals) if not in_interval
+                a for a, in_interval in zip(read_mismatches, in_intervals)
+                if not in_interval
             ]
             for pos, refalt in read_mismatches_rm_splicing:
                 mismatches[read_strand][pos]['ref'] = refalt[0].upper()
-                mismatches[read_strand][pos]['nt'][refalt[1].upper()].append(read.query_name)
+                mismatches[read_strand][pos]['nt'][refalt[1].upper()].append(
+                    read.query_name
+                )
         else:
             pass
 
@@ -120,7 +132,9 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
         ####################
         # read names for ref nt
         positions = list(mismatches[strand].keys())
-        pileup = sam.pileup(contig = chromosome, start = start_pos, stop = end_pos)
+        pileup = sam.pileup(
+            contig = chromosome, start = start_pos, stop = end_pos
+        )
         for column in pileup:
             pos = column.pos
             if pos in positions:
@@ -139,7 +153,9 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
                     for rn in raw_read_names
                 ]
                 read_names = [
-                    a for a, keep1, keep2 in zip(raw_read_names, seq_keep_idx, strand_keep_idx)
+                    a
+                    for a, keep1, keep2
+                    in zip(raw_read_names, seq_keep_idx, strand_keep_idx)
                     if keep1 and keep2
                 ]
                 mismatches[strand][pos]['nt'][ref].extend(read_names)
@@ -149,7 +165,9 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
         # depth for mismatches
         positions = list(mismatches[strand].keys())
         # region depth
-        # r_a, r_c, r_g, r_t = sam.count_coverage(contig = chromosome, start = start_pos, stop = end_pos)
+        # r_a, r_c, r_g, r_t = sam.count_coverage(
+        #     contig = chromosome, start = start_pos, stop = end_pos
+        # )
         # for pos in positions:
         #     mismatches[pos]['depth']['a'] = r_a[pos - start_pos]
         #     mismatches[pos]['depth']['c'] = r_c[pos - start_pos]
@@ -158,7 +176,9 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
         for pos in positions:
             nt_seqs = list(mismatches[strand][pos]['nt'].keys())
             for nt in nt_seqs:
-                mismatches[strand][pos]['depth'][nt] = len(mismatches[strand][pos]['nt'][nt])
+                mismatches[strand][pos]['depth'][nt] = len(
+                    mismatches[strand][pos]['nt'][nt]
+                )
         ####################
         # Filters
         # FILTER 2: remove alleles of mismatches with too shallow depth
@@ -245,7 +265,7 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
                 a_ratio = [a / t_depth for a in a_depth]
                 a_ratio.sort()
                 major_allele_ratio = a_ratio[-1]
-                minor_allele_ratio = a_ratio[-2]
+                # minor_allele_ratio = a_ratio[-2]
                 if major_allele_ratio >= min_het_snp_ratio and major_allele_ratio <= max_het_snp_ratio:
                     mismatches[strand][pos]['type'] = 'het_snp'
                 else:

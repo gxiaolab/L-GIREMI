@@ -148,17 +148,6 @@ def correct_read_strand_in_chrom(chrom,
     gtf = pysam.TabixFile(gtf_file)
     genome = pysam.FastaFile(genome_file)
 
-    region_gtf_list = list()
-    for gtf_entry in gtf.fetch(
-            chrom, parser=pysam.asGTF()
-    ):
-        region_gtf_list.append(
-            [gtf_entry.feature,
-             gtf_entry.gene_name,
-             gtf_entry.start, gtf_entry.end,
-             gtf_entry.strand]
-        )
-
     read_strand_list = []
 
     for read in sam.fetch(chrom):
@@ -194,12 +183,88 @@ def correct_read_strand_in_chrom(chrom,
                 pass
         else:
             pass
-        gtf_list = [
-            [g_feature, g_name, g_low, g_high, g_strand]
-            for g_feature, g_name, g_low, g_high, g_strand in region_gtf_list
-            if (g_low < (read.reference_start - gene_padding))
-            or (g_high > (read.reference_end + gene_padding))
-        ]
+        gtf_list = list()
+        for gtf_entry in gtf.fetch(
+                chrom,
+                read.reference_start - gene_padding,
+                read.reference_end + gene_padding,
+                parser=pysam.asGTF()
+        ):
+            gtf_list.append(
+                [gtf_entry.feature,
+                 gtf_entry.gene_name,
+                 gtf_entry.start, gtf_entry.end,
+                 gtf_entry.strand]
+            )
+        # correct strand
+        read_strand = get_read_strand(
+            seq_strand, gtf_list = gtf_list,
+            read_low = read.reference_start,
+            read_high = read.reference_end,
+            read_intron_list = read_intron_list,
+            gene_padding = gene_padding,
+            exon_padding = exon_padding
+        )
+
+        read_strand_list.append([read.query_name, read_strand])
+    return chrom, read_strand_list
+
+
+def correct_read_strand_in_region(chrom, start_pos, end_pos,
+                                  sam, gtf, genome,
+                                  gene_padding = 500,
+                                  exon_padding = 10,
+                                  keep_non_spliced_read = False,
+                                  mode = 'cs'):
+
+    read_strand_list = []
+
+    for read in sam.fetch(chrom, start_pos, end_pos):
+        # 0 based
+        seq_strand = '-' if read.is_reverse else '+'
+        if mode == 'cs':
+            # mode with cs tags
+            cs_tag_string = read.get_tag('cs')
+            read_CS = CS.from_cs_tag_string(
+                cs_tag_string,
+                chrom, read.reference_start, seq_strand
+            )
+        else:
+            # using CIGAR string and MD tags instead
+            cigar_string = read.cigarstring
+            md_tag_string = read.get_tag('MD')
+            read_seq = read.query_sequence
+            # reverse complemented for the reversed reads
+            ref_seq = genome.fetch(
+                chrom, read.reference_start, read.reference_end
+            )
+            read_CS = CS.from_cigar_string(
+                cigar_string, md_tag_string, read_seq, ref_seq,
+                chrom, read.reference_start, seq_strand
+            )
+        read_intron_list = read_CS.get_introns(coordinate = 'contig')
+        read_intron_list.sort(key = lambda a: a[0])
+        # ['low', 'high', 'ope', 'val']
+        if not keep_non_spliced_read:
+            if len(read_intron_list) == 0:
+                continue
+            else:
+                pass
+        else:
+            pass
+        gtf_list = list()
+        for gtf_entry in gtf.fetch(
+                chrom,
+                read.reference_start - gene_padding,
+                read.reference_end + gene_padding,
+                parser=pysam.asGTF()
+        ):
+            gtf_list.append(
+                [gtf_entry.feature,
+                 gtf_entry.gene_name,
+                 gtf_entry.start, gtf_entry.end,
+                 gtf_entry.strand]
+            )
         # correct strand
         read_strand = get_read_strand(
             seq_strand, gtf_list = gtf_list,
