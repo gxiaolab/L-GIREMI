@@ -2,74 +2,72 @@
 import re
 import pysam
 import argparse
-import pandas as pd
-import numpy as np
 import multiprocessing as mp
 from functools import partial
 from collections import defaultdict
+from giremi.cs import CS
+from giremi.footprint import get_footprints
 
 
-def split_cs_string(cs_string):
-    return list(
-        zip(
-            re.sub('[0-9a-z]', ' ', cs_string).split(),
-            re.sub('[:*\-+~]', ' ', cs_string).split()
-        )
-    )
+def get_read_splice_from_bam_in_region(chromosome, start_pos, end_pos,
+                                       sam, genome,
+                                       mode = 'cs'):
+    '''
+    Obtain splicing site coordinates from the cs tags in the bam file.
+    '''
 
-
-cslenfuncs = {
-    ':': int,
-    '*': lambda x: 1,
-    '+': lambda x: 0,
-    '-': len,
-    '~': lambda x: int(re.sub('[a-z]', '', x))
-}
-
-
-def cs_to_df(cs_string, pos):
-    cs = split_cs_string(cs_string)
-    cslist = list()
-    for a, b in cs:
-        low = pos
-        pos += cslenfuncs[a](b)
-        high = pos
-        cslist.append([low, high, a, b])
-    csdf = pd.DataFrame(
-        np.row_stack(cslist),
-        columns=['low', 'high', 'ope', 'val']
-    )
-    csdf.loc[:, 'low'] = csdf['low'].astype(int)
-    csdf.loc[:, 'high'] = csdf['high'].astype(int)
-    return csdf
-
-
-def chrom_get_read_splice_from_bam(chrom, variables):
-    """
-    Obtain mismatch coordinates from the cs tags in the bam file
-    """
-    sam = pysam.AlignmentFile(variables['bam_file'], 'rb')
     splice_list = list()
-    for read in sam.fetch(chrom):
-        if read.mapq < variables['mapq_threshold']:
-            continue
-        elif read.is_secondary: # skip secondary reads
-            continue
+    for read in sam.fetch(chromosome, start_pos, end_pos):
+        read_strand = '-' if read.is_reverse else '+'
         # 0 based
-        pos = read.reference_start
-        cs = cs_to_df(read.get_tag('cs'), pos)
-        cs_splice = cs.loc[cs['ope'] == '~']
-        for ri, row in cs_splice.iterrows():
-            for x in ['low', 'high']:
-                if x == 'low':
-                    postype = 'intron_left'
-                else:
-                    postype = 'intron_right'
-                pos = int(row[x])
-                splice_list.append(
-                    [read.query_name,
-                     chrom, pos, postype]
-                )
+        if mode == 'cs':
+            # mode with cs tags
+            cs_tag_string = read.get_tag('cs')
+            read_CS = CS.from_cs_tag_string(
+                cs_tag_string,
+                chromosome, read.reference_start, read_strand
+            )
+        else:
+            # using CIGAR string and MD tags instead
+            cigar_string = read.cigarstring
+            md_tag_string = read.get_tag('MD')
+            read_seq = read.query_sequence    # reverse complemented for the reversed reads
+            ref_seq = genome.fetch(
+                chromosome, read.reference_start, read.reference_end
+            )
+            read_CS = CS.from_cigar_string(
+                cigar_string, md_tag_string, read_seq, ref_seq,
+                chromosome, read.reference_start, read_strand
+            )
+        read_introns = read_CS.get_introns(coordinate = 'contig')
+        read_introns.sort(key = lambda a: a[0])
+        for intron in read_introns:
+            splice_list.append(
+                [read.query_name,
+                 chromosome, intron[0], 'intron_left']
+            )
+            splice_list.append(
+                [read.query_name,
+                 chromosome, intron[1], 'intron_right']
+            )
+    return splice_list
+
+
+def footprint_bulk_calculation(footprints, variables):
+    sam = pysam.AlignmentFile(variables['bam_file'], 'rb')
+    if variables['mode'] != 'cs':
+        genome = pysam.FastaFile(variables['genome_file'])
+    else:
+        genome = None
+
+    splice_list = []
+    for chromosome, start_pos, end_pos, rc in footprints:
+        read_splice = get_read_splice_from_bam_in_region(
+            chromosome, start_pos, end_pos,
+            sam, genome,
+            mode = variables['mode']
+        )
+        splice_list.extend(read_splice)
     return splice_list
 
 
@@ -103,53 +101,82 @@ if __name__ == '__main__':
         default = 'out'
     )
     parser.add_argument(
-        "--mapq_threshold",
-        help = "Min MAPQ to be considered in bam file (default: 20)",
-        type=float,
-        default=20
-    )
-    parser.add_argument(
         "-t", "--thread",
         help = "cores to be used",
         type=int,
         default = 1
     )
+    parser.add_argument(
+        "--genome_fasta",
+        help = "path of genome fasta file",
+        type=str,
+        default=None
+    )
+    parser.add_argument(
+        "--min_total_depth",
+        help = "Min mismatch total read count to be considered (default: 6)",
+        type = int,
+        default = 2
+    )
+    parser.add_argument(
+        "--mode",
+        help = "Mode to find mismatches in BAM: with cs tags (cs), or CIGAR and MD tags (cigar). (defalt: cs)",
+        type = str,
+        default = 'cs',
+        choices = ['cs', 'cigar']
+    )
     args = parser.parse_args()
+
+    # cigar mode requires the genome fasta.
+    if args.mode == 'cigar' and len(args.genome_fasta) < 1:
+        raise ValueError('If the mode is "cigar", the genome_fasta must be provided.')
+    else:
+        pass
 
     variables = {
         'bam_file': args.bam_file,
+        'genome_file': args.genome_fasta,
         'outprefix': args.output_prefix,
-        'mapq_threshold': args.mapq_threshold
+        'min_total_depth' : args.min_total_depth,
+        'mode': args.mode
     }
 
+    footprints = get_footprints(
+        variables['bam_file'], args.chromosomes, variables['min_total_depth']
+    )
+    n = int(len(footprints) / args.thread)
+    footprint_chunk = []
+    for i in range(0, len(footprints), n):
+        footprint_chunk.append(footprints[i:(i + n)])
+
+    # calculate introns
     with mp.Pool(args.thread) as p:
-        results = p.map(
-            partial(
-                chrom_get_read_splice_from_bam,
-                variables=variables
-            ),
-            args.chromosomes
+        footprint_result = p.map(
+            partial(footprint_bulk_calculation,
+                    variables = variables),
+            footprint_chunk
         )
 
-    outfile = open('.'.join([variables['outprefix'], 'read_splice']), 'w')
-    outfile.write(
-        '\t'.join([
-            'read_name', 'chromosome',
-            'pos', 'type'
-        ]) + '\n'
-    )
-    for chrom_result in results:
+    splicing_list = []
+    for spl in footprint_result:
+        splicing_list.extend(spl)
+
+    with open('{}.read_splice.txt'.format(variables['outprefix']), 'w') as f:
+        f.write(
+            '\t'.join([
+                'read_name', 'chromosome',
+                'pos', 'type'
+            ]) + '\n'
+        )
         lines = []
-        for r_m in chrom_result:
+        for record in splicing_list:
             lines.append(
-                '\t'.join([str(a) for a in r_m]) +
+                '\t'.join([str(a) for a in record]) +
                 '\n'
             )
             if len(lines) > 10000:
-                outfile.writelines(lines)
+                f.writelines(lines)
                 lines = []
-        outfile.writelines(lines)
-
-    outfile.close()
+        f.writelines(lines)
 
 ####################

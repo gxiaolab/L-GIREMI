@@ -1,6 +1,6 @@
 # L-GIREMI
 
-[![](https://img.shields.io/badge/version-v0.2.1-blue)](https://pypi.org/project/l-giremi/)
+[![](https://img.shields.io/badge/version-v0.2.2-blue)](https://pypi.org/project/l-giremi/)
 
 L-GIREMI (Long-read Genome-independent Identification of RNA Editing by Mutual Information) is a method for identification of RNA editing sites from long-read RNA-seq data.
 
@@ -135,10 +135,10 @@ should be: chromosome, start, end. No header is needed for the file.
 ## Usage
 
 ```{bash}
-usage: l-giremi [-h] -b BAM_FILE [-c [CHROMOSOMES ...]] [-o OUTPUT_PREFIX] --genome_fasta GENOME_FASTA --snp_bcf SNP_BCF --repeat_txt REPEAT_TXT --annotation_gtf ANNOTATION_GTF [--min_allele_ratio MIN_ALLELE_RATIO]
-                [--min_allele_depth MIN_ALLELE_DEPTH] [--min_total_depth MIN_TOTAL_DEPTH] [--keep_non_spliced_read] [--min_dist_from_splice MIN_DIST_FROM_SPLICE] [--gene_padding GENE_PADDING] [--exon_padding EXON_PADDING]
-                [--min_rc_cov MIN_RC_COV] [--homopoly_length HOMOPOLY_LENGTH] [--min_het_snp_ratio MIN_HET_SNP_RATIO] [--max_het_snp_ratio MAX_HET_SNP_RATIO] [--mi_min_common_read MI_MIN_COMMON_READ] [--mip_threshold MIP_THRESHOLD]
-                [--mi_calculation_only] [--mode MODE] [--model MODEL] [-t THREAD] [--version]
+usage: l-giremi [-h] -b BAM_FILE [-c [CHROMOSOMES ...]] [-o OUTPUT_PREFIX] [-t THREAD] --annotation_gtf ANNOTATION_GTF --genome_fasta GENOME_FASTA [--homopoly_length HOMOPOLY_LENGTH] [--keep_non_spliced_read]
+                [--max_het_snp_ratio MAX_HET_SNP_RATIO] [--mi_calculation_only] [--mi_min_common_read MI_MIN_COMMON_READ] [--mi_p_threshold MI_P_THRESHOLD] [--min_allele_depth MIN_ALLELE_DEPTH]
+                [--min_allele_ratio MIN_ALLELE_RATIO] [--min_het_snp_ratio MIN_HET_SNP_RATIO] [--min_total_depth MIN_TOTAL_DEPTH] [--min_dist_from_splice MIN_DIST_FROM_SPLICE] [--mode MODE] [--model MODEL]
+                [--padding_exon PADDING_EXON] [--padding_gene PADDING_GENE] --repeat_txt REPEAT_TXT [--skip_strand_correction] --snp_bcf SNP_BCF [--version]
 
 L-GIREMI (Long-read RNA-seq Genome-independent Identification of RNA Editing by Mutual Information)
 
@@ -150,43 +150,45 @@ optional arguments:
                         chromosomes to be analyzed
   -o OUTPUT_PREFIX, --output_prefix OUTPUT_PREFIX
                         prefix of output file
-  --genome_fasta GENOME_FASTA
-                        path of genome fasta file
-  --snp_bcf SNP_BCF     path of dbSNP bcf file
-  --repeat_txt REPEAT_TXT
-                        path of txt file of simple repeats [chromosom, start, end] (0 based)
-  --annotation_gtf ANNOTATION_GTF
-                        gtf (gz and tabix indexed) file of genome annotation (gencode)
-  --min_allele_ratio MIN_ALLELE_RATIO
-                        Min mismatch ratio to be considered (default: 0.05)
-  --min_allele_depth MIN_ALLELE_DEPTH
-                        Min mismatch allele read count to be considered (default: 3)
-  --min_total_depth MIN_TOTAL_DEPTH
-                        Min mismatch total read count to be considered (default: 6)
-  --keep_non_spliced_read
-                        Keep non spliced reads (default: without this parameter, reads without splicing would be dropped.)
-  --min_dist_from_splice MIN_DIST_FROM_SPLICE
-                        Drop sites within the distance from splice junctions (default: 4)
-  --gene_padding GENE_PADDING
-                        expand the range when searching gene gtf (default: 500)
-  --exon_padding EXON_PADDING
-                        expand the range when searching exon gtf (default: 10)
-  --homopoly_length HOMOPOLY_LENGTH
-                        left and right sequence length to be searched for the homopoly around sites (default: 5)
-  --min_het_snp_ratio MIN_HET_SNP_RATIO
-                        Min ratio to be considered as heterogenous SNPs (default: 0.35)
-  --max_het_snp_ratio MAX_HET_SNP_RATIO
-                        Max ratio to be considered as heterogenous SNPs (default: 0.65)
-  --mi_min_common_read MI_MIN_COMMON_READ
-                        Min common read for site pairs to calculate MI (default: 6)
-  --mip_threshold MIP_THRESHOLD
-                        MI p value threshold to be used to separate RNA editing sites (default: 0.05)
-  --mi_calculation_only
-                        Only calculate the mutual information, without the modeling step. (default: calculate the steps after the MI step)
-  --mode MODE           Mode to find mismatches in BAM: with cs tags (cs), or CIGAR and MD tags (cigar). (defalt: cs)
-  --model MODEL         GLM model for scoring: lm, logistic. (defalt: lm)
   -t THREAD, --thread THREAD
                         cores to be used
+  --annotation_gtf ANNOTATION_GTF
+                        gtf (gz and tabix indexed) file of genome annotation (gencode)
+  --genome_fasta GENOME_FASTA
+                        path of genome fasta file
+  --homopoly_length HOMOPOLY_LENGTH
+                        left and right sequence length to be searched for the homopoly around sites (default: 5)
+  --keep_non_spliced_read
+                        Keep non spliced reads (default: without this parameter, reads without splicing would be dropped.)
+  --max_het_snp_ratio MAX_HET_SNP_RATIO
+                        Max ratio to be considered as heterogenous SNPs (default: 0.65)
+  --mi_calculation_only
+                        Only calculate the mutual information, without the modeling step. (default: calculate the steps after the MI step)
+  --mi_min_common_read MI_MIN_COMMON_READ
+                        Min common read for site pairs to calculate MI (default: 6)
+  --mi_p_threshold MI_P_THRESHOLD
+                        MI p value threshold to be used to separate RNA editing sites (default: 0.05)
+  --min_allele_depth MIN_ALLELE_DEPTH
+                        Min mismatch allele read count to be considered (default: 3)
+  --min_allele_ratio MIN_ALLELE_RATIO
+                        Min mismatch ratio to be considered (default: 0.05)
+  --min_het_snp_ratio MIN_HET_SNP_RATIO
+                        Min ratio to be considered as heterogenous SNPs (default: 0.35)
+  --min_total_depth MIN_TOTAL_DEPTH
+                        Min mismatch total read count to be considered (default: 6)
+  --min_dist_from_splice MIN_DIST_FROM_SPLICE
+                        Drop sites within the distance from splice junctions (default: 4)
+  --mode MODE           Mode to find mismatches in BAM: with cs tags (cs), or CIGAR and MD tags (cigar). (defalt: cs)
+  --model MODEL         GLM model for scoring: lm, logistic. (defalt: lm)
+  --padding_exon PADDING_EXON
+                        expand the range when searching exon gtf (default: 10)
+  --padding_gene PADDING_GENE
+                        expand the range when searching gene gtf (default: 500)
+  --repeat_txt REPEAT_TXT
+                        path of txt file of simple repeats [chromosom, start, end] (0 based)
+  --skip_strand_correction
+                        skip the strand correction step to save runtime.
+  --snp_bcf SNP_BCF     path of dbSNP bcf file
   --version             show program's version number and exit
 ```
 
@@ -289,13 +291,15 @@ And, only the mutual information result would be output.
   4. strand: strand of the mismatch sites.
   5. change\_type: the mismatch type, [ref]>[alt].
   6. ratio: the mismatch ratio.
-  7. depth: the total read count for the site.
-  8. A:C:T:G: read counts for A, C, T, G, not strand specific.
-  9. up\_seq: a 5' nucleotide ahead of the mismatch sites.
-  10. down_seq: a 3' nucleotide after the mismatch sites.
-  11. mean\_mi: mean mutual information with the het\_snps, empty if not applicable.
-  12. mip: emperical p value of the MI, empty if not applicable.
-  13. score: RNA editing score by the model.
+  7. allelic\_ratio\_diff: difference between the major mismatch ratio from
+     regional allelic ratio (ratio - allelic\_ratio).
+  8. depth: the total read count for the site.
+  9. A:C:T:G: read counts for A, C, T, G, not strand specific.
+  10. up\_seq: a 5' nucleotide ahead of the mismatch sites.
+  11. down_seq: a 3' nucleotide after the mismatch sites.
+  12. mean\_mi: mean mutual information with the het\_snps, empty if not applicable.
+  13. mip: emperical p value of the MI, empty if not applicable.
+  14. score: RNA editing score by the model.
 * score performance file: stored as `$OUTPREFIX.score_performance`.
   columns:
   1. score: score from mismatch score file
@@ -322,6 +326,71 @@ And, only the mutual information result would be output.
 
 There are also some useful scripts provided with the main l-giremi
 code.
+
+### `correct_read_strand`
+
+`correct_read_strand` is used for the correction of strand of long
+reads.  It will use the information of splicing pattern of reads, gtf
+annotations to correct the strand. The output is a txt file with 3
+columns: read\_name, original\_read\_strand, corrected\_read\_strand.
+
+```{bash}
+usage: correct_read_strand [-h] -b BAM_FILE [-c [CHROMOSOMES ...]] [-o OUTPUT_PREFIX] [-t THREAD] --annotation_gtf ANNOTATION_GTF --genome_fasta GENOME_FASTA [--keep_non_spliced_read] [--mode MODE] [--padding_exon PADDING_EXON]
+                           [--padding_gene PADDING_GENE]
+
+Correct read strand.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -b BAM_FILE, --bam_file BAM_FILE
+                        input bam file, with cs tags, sorted and indexed
+  -c [CHROMOSOMES ...], --chromosomes [CHROMOSOMES ...]
+                        chromosomes to be analyzed
+  -o OUTPUT_PREFIX, --output_prefix OUTPUT_PREFIX
+                        prefix of output file
+  -t THREAD, --thread THREAD
+                        cores to be used
+  --annotation_gtf ANNOTATION_GTF
+                        gtf (gz and tabix indexed) file of genome annotation (gencode)
+  --genome_fasta GENOME_FASTA
+                        path of genome fasta file
+  --keep_non_spliced_read
+                        Keep non spliced reads (default: without this parameter, reads without splicing would be dropped.)
+  --mode MODE           Mode to find mismatches in BAM: with cs tags (cs), or CIGAR and MD tags (cigar). (defalt: cs)
+  --padding_exon PADDING_EXON
+                        expand the range when searching exon gtf (default: 10)
+  --padding_gene PADDING_GENE
+                        expand the range when searching gene gtf (default: 500)
+```
+
+### `correct_splice_site`
+
+Since the raw splice sites detected in the long-read RNA-seq data may
+not be accurate, a correction procedure is needed [(Wyman and
+Mortazavi, 2019)][2]. `correct_splice_site` adopted similar correction
+strategies with TranscriptClean. The correction needs a GTF annotation
+file.
+
+
+```{bash}
+usage: correct_splice_site [-h] -s SPLICE_FILE --annotation_gtf ANNOTATION_GTF
+                           [-c [CHROMOSOMES ...]] [-o OUTPUT_PREFIX] [--window WINDOW]
+
+Correct splice sites by gtf file
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -s SPLICE_FILE, --splice_file SPLICE_FILE
+                        input splice file [read_name, chromosome, pos, type] with column names
+  --annotation_gtf ANNOTATION_GTF
+                        gtf (gz and tabix indexed) file of genome annotation (gencode)
+  -c [CHROMOSOMES ...], --chromosomes [CHROMOSOMES ...]
+                        chromosomes to be analyzed
+  -o OUTPUT_PREFIX, --output_prefix OUTPUT_PREFIX
+                        prefix of output file
+  --window WINDOW       window to be considered as the same splice site (default: 10)
+```
+
 
 ### `get_aei`
 
@@ -435,31 +504,6 @@ optional arguments:
                         Min MAPQ to be considered in bam file (default: 20)
   -t THREAD, --thread THREAD
                         cores to be used
-```
-
-### `correct_splice_site`
-
-Since the raw splice sites detected in the long-read RNA-seq data may
-not be accurate, a correction procedure is needed [(Wyman and Mortazavi, 2019)][2]. `correct_splice_site` adopted similar correction strategies with TranscriptClean. The correction needs a GTF annotation file.
-
-
-```{bash}
-usage: correct_splice_site [-h] -s SPLICE_FILE --annotation_gtf ANNOTATION_GTF
-                              [-c [CHROMOSOMES ...]] [-o OUTPUT_PREFIX] [--window WINDOW]
-
-Correct splice sites by gtf file
-
-optional arguments:
-  -h, --help            show this help message and exit
-  -s SPLICE_FILE, --splice_file SPLICE_FILE
-                        input splice file [read_name, chromosome, pos, type] with column names
-  --annotation_gtf ANNOTATION_GTF
-                        gtf (gz and tabix indexed) file of genome annotation (gencode)
-  -c [CHROMOSOMES ...], --chromosomes [CHROMOSOMES ...]
-                        chromosomes to be analyzed
-  -o OUTPUT_PREFIX, --output_prefix OUTPUT_PREFIX
-                        prefix of output file
-  --window WINDOW       window to be considered as the same splice site (default: 10)
 ```
 
 ### `calculate_site_splice_mi`

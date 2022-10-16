@@ -323,7 +323,9 @@ def region_mismatch_analysis(chromosome, start_pos, end_pos,
                     if a[1] == 'het_snp' or a[3] == 'het_snp'
                 ]
                 if len(mismatch_pair_mi[strand]) > 0:
-                    mismatch_mean_mi[strand] = mean_mismatch_pair_mutual_info(mismatch_pair_mi[strand])
+                    mismatch_mean_mi[strand] = mean_mismatch_pair_mutual_info(
+                        mismatch_pair_mi[strand]
+                    )
             else:
                 pass
         else:
@@ -346,23 +348,51 @@ def region_mismatch_analysis(chromosome, start_pos, end_pos,
     nt_pair = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
     for strand in ['+', '-']:
         mean_mi_dict = dict(mismatch_mean_mi[strand])
+        # calculate regional allelic ratio
+        het_snp_ratios = list()
+        for pos in mismatches[strand]:
+            postype = mismatches[strand][pos]['type']
+            if postype == 'het_snp':
+                depth = mismatches[strand][pos]['depth'].copy()
+                ref_allele = mismatches[strand][pos]['ref']
+                total_depth = sum(depth[nt] for nt in depth)
+                # ref_depth = mismatches[strand][pos]['depth'][ref_allele]
+                alt_allele_depth = [
+                    [nt, depth[nt]] for nt in depth if nt != ref_allele
+                ]
+                alt_allele_depth.sort(key = lambda a: a[1], reverse = True)
+                alt_major_allele = alt_allele_depth[0][0]
+                alt_major_allele_depth = alt_allele_depth[0][1]
+                alt_major_ratio = alt_major_allele_depth / total_depth
+                het_snp_ratios.append(alt_major_ratio)
+            else:
+                pass
+        if len(het_snp_ratios) > 0:
+            allelic_ratio = sum(het_snp_ratios) / len(het_snp_ratios)
+        else:
+            allelic_ratio = 0.5
         for pos in mismatches[strand]:
             depth = mismatches[strand][pos]['depth'].copy()
             postype = mismatches[strand][pos]['type']
             ref_allele = mismatches[strand][pos]['ref']
             total_depth = sum(depth[nt] for nt in depth)
-            ref_depth = mismatches[strand][pos]['depth'][ref_allele]
-            alt_allele_depth = [[nt, depth[nt]] for nt in depth if nt != ref_allele]
+            # ref_depth = mismatches[strand][pos]['depth'][ref_allele]
+            alt_allele_depth = [
+                [nt, depth[nt]] for nt in depth if nt != ref_allele
+            ]
             alt_allele_depth.sort(key = lambda a: a[1], reverse = True)
             alt_major_allele = alt_allele_depth[0][0]
             alt_major_allele_depth = alt_allele_depth[0][1]
             alt_major_ratio = alt_major_allele_depth / total_depth
+            allelic_ratio_diff = alt_major_ratio - allelic_ratio
             nt_depth = '{}:{}:{}:{}'.format(depth['A'], depth['C'], depth['T'], depth['G'])
             change_type = ''
             if strand == '+':
                 change_type = '{}>{}'.format(ref_allele, alt_major_allele)
             else:
-                change_type = '{}>{}'.format(nt_pair[ref_allele], nt_pair[alt_major_allele])
+                change_type = '{}>{}'.format(
+                    nt_pair[ref_allele], nt_pair[alt_major_allele]
+                )
             up_nt = ''
             down_nt = ''
             if strand == '+':
@@ -377,15 +407,17 @@ def region_mismatch_analysis(chromosome, start_pos, end_pos,
                 mean_mi = np.nan
             mismatch_records.append(
                 [postype, chromosome, strand, pos,
-                 ref_allele, change_type, alt_major_ratio,
+                 ref_allele, change_type, alt_major_ratio, allelic_ratio_diff,
                  total_depth, nt_depth, up_nt, down_nt, mean_mi]
             )
 
     df_mismatches = pd.DataFrame.from_records(
         mismatch_records,
         columns = ['type', 'chromosome', 'strand', 'pos', 'ref', 'change_type',
-                   'ratio', 'depth', 'A:C:T:G', 'up_seq', 'down_seq', 'mean_mi']
+                   'ratio', 'allelic_ratio_diff', 'depth', 'A:C:T:G',
+                   'up_seq', 'down_seq', 'mean_mi']
     )
     return df_mismatches, df_mismatch_pair_mi
+
 
 ########################################

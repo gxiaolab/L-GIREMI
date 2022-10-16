@@ -36,7 +36,7 @@ def glm_score(data, model = 'lm'):
             pd.get_dummies(
                 data[['change_type', 'up_seq', 'down_seq']]
             ),
-            data['ratio']
+            data['allelic_ratio_diff']
         ],
         axis=1
     )

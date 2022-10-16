@@ -7,9 +7,12 @@ import numpy as np
 import multiprocessing as mp
 from functools import partial
 from giremi.footprint import get_footprints
-from giremi.fileio import read_simple_repeat_intervals, read_snp_positions_in_region
+from giremi.fileio import read_simple_repeat_intervals
+from giremi.fileio import read_snp_positions_in_region
 from giremi.mismatch import region_mismatch_analysis
-from giremi.stat import ecdf, glm_score, score_performance
+from giremi.stat import ecdf
+from giremi.stat import glm_score
+from giremi.stat import score_performance
 from giremi.strand import correct_read_strand_in_region
 
 
@@ -28,7 +31,7 @@ def footprint_bulk_calculation(footprints, variables):
         chromosome, start_pos, end_pos, rc = footprint
         # correct read strand
         if not variables['skip_strand_correction']:
-            chromosome, read_strand_list = correct_read_strand_in_region(
+            read_strand_list = correct_read_strand_in_region(
                 chromosome, start_pos, end_pos,
                 sam, gtf, genome,
                 variables['gene_padding'], variables['exon_padding'],
@@ -36,7 +39,10 @@ def footprint_bulk_calculation(footprints, variables):
                 mode = variables['mode']
             )
             strand_list.extend(read_strand_list)
-            read_strand_dict = dict(read_strand_list)
+            read_strand_dict = dict([
+                [rname, correctedstrand]
+                for rname, oldstrand, correctedstrand in read_strand_list
+            ])
         else:
             read_strand_dict = None
         # get snps in the footprint
@@ -71,7 +77,7 @@ def footprint_bulk_calculation(footprints, variables):
     mi_df = pd.concat(mi_df_list, axis = 0)
     strand_df = pd.DataFrame.from_records(
         strand_list,
-        columns = ['read_name', 'read_strand']
+        columns = ['read_name', 'original_read_strand', 'corrected_read_strand']
     )
     sam.close()
     genome.close()
@@ -105,7 +111,10 @@ def run_glm(mmdf, mip_threshold = 0.05, model = 'lm'):
         train_data_neg.sample(n = bnum, replace = False)
     ])
     mmdf_labeled = pd.merge(
-        mmdf, train_data[['type', 'chromosome', 'pos', 'strand', 'change_type', 'label']],
+        mmdf,
+        train_data[
+            ['type', 'chromosome', 'pos', 'strand', 'change_type', 'label']
+        ],
         on = ['type', 'chromosome', 'pos',
               'strand', 'change_type'],
         how = 'left'
@@ -122,7 +131,7 @@ def run_glm(mmdf, mip_threshold = 0.05, model = 'lm'):
 
 
 if __name__ == '__main__':
-    VMAJOR, VMINOR, VMICRO = 0, 2, 1
+    VMAJOR, VMINOR, VMICRO = 0, 2, 2
     VERSION = '{}.{}.{}'.format(VMAJOR, VMINOR, VMICRO)
     parser = argparse.ArgumentParser(
         description="L-GIREMI (Long-read RNA-seq Genome-independent Identification of RNA Editing by Mutual Information)"
@@ -290,7 +299,6 @@ if __name__ == '__main__':
         'bam_file' : args.bam_file,
         'genome_file' : args.genome_fasta,
         'gtf_file' : args.annotation_gtf,
-        'outprefix' : args.output_prefix,
         'repeat_file' : args.repeat_txt,
         'snp_file' : args.snp_bcf,
         'exon_padding' : args.padding_exon,
@@ -320,7 +328,7 @@ if __name__ == '__main__':
     )
 
     # footprint depth use variables['min_total_depth']
-    message = 'Get regions with reads.'
+    message = 'Get regions that are covered by enough reads.'
     logging.info(message)
     footprints = get_footprints(
         variables['bam_file'], args.chromosomes, variables['min_total_depth']
@@ -353,12 +361,12 @@ if __name__ == '__main__':
 
     # output strand table
     strand_df.to_csv(
-        variables['outprefix'] + '.strand.txt',
+        args.output_prefix + '.strand.txt',
         sep = '\t', index = False
     )
     # output mi table
     mi_df.to_csv(
-        variables['outprefix'] + '.mi.txt',
+        args.output_prefix + '.mi.txt',
         sep = '\t', index = False
     )
     if not variables['mi_calculation_only']:
@@ -395,11 +403,11 @@ if __name__ == '__main__':
         del glmresult['id']
         # output mismatch table
         glmresult.to_csv(
-            variables['outprefix'] + '.mismatch.txt',
+            args.output_prefix + '.mismatch.txt',
             sep = '\t', index = False
         )
         scorepf.to_csv(
-            variables['outprefix'] + '.score_performance.txt',
+            args.output_prefix + '.score_performance.txt',
             sep = '\t', index = False
         )
     else:
