@@ -1,6 +1,6 @@
 # L-GIREMI
 
-[![](https://img.shields.io/badge/version-v0.2.2-blue)](https://pypi.org/project/l-giremi/)
+[![](https://img.shields.io/badge/version-v0.2.3-blue)](https://pypi.org/project/l-giremi/)
 
 L-GIREMI (Long-read Genome-independent Identification of RNA Editing by Mutual Information) is a method for identification of RNA editing sites from long-read RNA-seq data.
 

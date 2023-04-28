@@ -21,6 +21,9 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
                                        read_strand_dict = None,
                                        min_het_snp_ratio = 0.35,
                                        max_het_snp_ratio = 0.65,
+                                       mismatch_window_size = 100,
+                                       max_window_mismatch = 10,
+                                       max_window_mismatch_type = 3,
                                        mode = 'cs'):
 
     mismatches = {
@@ -28,13 +31,33 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
             lambda: {'ref': '', 'type': 'mismatch',
                      'depth': defaultdict(int),
                      'nt': defaultdict(list),
+                     'neighbor': defaultdict(int),
                      'up': '', 'down': ''}
         ),
         '-': defaultdict(
             lambda: {'ref': '', 'type': 'mismatch',
                      'depth': defaultdict(int),
                      'nt': defaultdict(list),
+                     'neighbor': defaultdict(int),
                      'up': '', 'down': ''}
+        )
+    }
+    removed_mismatches = {
+        '+': defaultdict(
+            lambda: {'ref': '', 'type': 'mismatch',
+                     'depth': defaultdict(int),
+                     'nt': defaultdict(list),
+                     'neighbor': defaultdict(int),
+                     'up': '', 'down': '',
+                     'removed': ''}
+        ),
+        '-': defaultdict(
+            lambda: {'ref': '', 'type': 'mismatch',
+                     'depth': defaultdict(int),
+                     'nt': defaultdict(list),
+                     'neighbor': defaultdict(int),
+                     'up': '', 'down': '',
+                     'removed': ''}
         )
     }
 
@@ -124,6 +147,8 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
         else:
             pass
 
+    # Process filters
+    nt_pair = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
     for strand in ['+', '-']:
         if len(mismatches[strand]) == 0:
             continue
@@ -131,7 +156,7 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
             pass
         ####################
         # read names for ref nt
-        positions = list(mismatches[strand].keys())
+        positions = sorted(list(mismatches[strand].keys()))
         pileup = sam.pileup(
             contig = chromosome, start = start_pos, stop = end_pos
         )
@@ -163,7 +188,7 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
                 pass
         ####################
         # depth for mismatches
-        positions = list(mismatches[strand].keys())
+        positions = sorted(list(mismatches[strand].keys()))
         # region depth
         # r_a, r_c, r_g, r_t = sam.count_coverage(
         #     contig = chromosome, start = start_pos, stop = end_pos
@@ -180,9 +205,39 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
                     mismatches[strand][pos]['nt'][nt]
                 )
         ####################
-        # Filters
-        # FILTER 2: remove alleles of mismatches with too shallow depth
-        positions = list(mismatches[strand].keys())
+        # FILTER: window mismatch number
+        half_window_size = round(mismatch_window_size / 2)
+        positions = sorted(list(mismatches[strand].keys()))
+        for pos in positions:
+            pos_range = [pos - half_window_size, pos + half_window_size]
+            in_range_pos = [
+                a for a in positions if a != pos and a >= pos_range[0] and a < pos_range[1]
+            ]
+            if len(in_range_pos) > 0:
+                for a in in_range_pos:
+                    ref_allele = mismatches[strand][a]['ref']
+                    alt_alleles = [nt for nt in mismatches[strand][a]['depth'] if nt != ref_allele]
+                    for nt in alt_alleles:
+                        change_type = ''
+                        if strand == '+':
+                            change_type = '{}>{}'.format(
+                                ref_allele, nt
+                            )
+                        else:
+                            change_type = '{}>{}'.format(
+                                nt_pair[ref_allele],
+                                nt_pair[nt]
+                            )
+                        mismatches[strand][pos]['neighbor'][change_type] += 1
+                total_window_mismatch = sum(mismatches[strand][pos]['neighbor'].values())
+                total_window_mismatch_type = len(mismatches[strand][pos]['neighbor'].keys())
+                if total_window_mismatch > max_window_mismatch and total_window_mismatch_type > max_window_mismatch_type:
+                    removed_mismatches[strand][pos] = mismatches[strand].pop(pos)
+                    removed_mismatches[strand][pos]['removed'] = 'too many window mismatches'
+
+        ####################
+        # FILTER: remove alleles of mismatches with too shallow depth
+        positions = sorted(list(mismatches[strand].keys()))
         for pos in positions:
             nt_seqs = list(mismatches[strand][pos]['nt'].keys())
             for nt in nt_seqs:
@@ -191,8 +246,9 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
                     mismatches[strand][pos]['nt'].pop(nt)
                 else:
                     pass
-        # FILTER 3: remove alleles of mismatches with too small allelic ratio
-        positions = list(mismatches[strand].keys())
+        ####################
+        # FILTER: remove alleles of mismatches with too small allelic ratio
+        positions = sorted(list(mismatches[strand].keys()))
         for pos in positions:
             t_depth = sum(mismatches[strand][pos]['depth'].values())
             nt_seqs = list(mismatches[strand][pos]['nt'].keys())
@@ -202,24 +258,29 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
                 if a_ratio < min_allele_ratio:
                     mismatches[strand][pos]['nt'].pop(nt)
                 else: pass
-        # FILTER 4: remove mismatches with too shallow total depth
-        positions = list(mismatches[strand].keys())
+        ####################
+        # FILTER: remove mismatches with too shallow total depth
+        positions = sorted(list(mismatches[strand].keys()))
         for pos in positions:
             t_depth = sum(mismatches[strand][pos]['depth'].values())
             if t_depth < min_total_depth:
-                mismatches[strand].pop(pos)
+                removed_mismatches[strand][pos] = mismatches[strand].pop(pos)
+                removed_mismatches[strand][pos]['removed'] = 'too few usable reads after filters'
             else:
                 pass
-        # FILTER 5: remove mismatches without enought allele after previous fitlers
-        positions = list(mismatches[strand].keys())
+        ####################
+        # FILTER: remove mismatches without enought allele after previous fitlers
+        positions = sorted(list(mismatches[strand].keys()))
         for pos in positions:
             nt_count = len(mismatches[strand][pos]['nt'])
             if nt_count < 2:
-                mismatches[strand].pop(pos)
+                removed_mismatches[strand][pos] = mismatches[strand].pop(pos)
+                removed_mismatches[strand][pos]['removed'] = 'not enough allele after filters'
             else:
                 pass
-        # FILTER 6: remove mismatches in homopoly and assign up and down seq
-        positions = list(mismatches[strand].keys())
+        ####################
+        # FILTER: remove mismatches in homopoly and assign up and down seq
+        positions = sorted(list(mismatches[strand].keys()))
         for pos in positions:
             left = genome.fetch(
                 chromosome, pos - homopoly_length, pos
@@ -233,21 +294,24 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
                 (len(set(right)) == 1) or \
                 (len(set(left[-int(homopoly_length / 2):] + right[0:int(homopoly_length / 2)])) == 1)
             if in_homo:
-                mismatches[strand].pop(pos)
+                removed_mismatches[strand][pos] = mismatches[strand].pop(pos)
+                removed_mismatches[strand][pos]['removed'] = 'in homopoly regions'
             else:
                 pass
-        # FILTER 7: remove mismatches in simple repeats
-        positions = list(mismatches[strand].keys())
+        ####################
+        # FILTER: remove mismatches in simple repeats
+        positions = sorted(list(mismatches[strand].keys()))
         in_repeats, interval_id = positions_in_intervals(
             positions,
             simple_repeat_intervals
         )
         positions_to_remove = [a for a, in_repeat in zip(positions, in_repeats) if in_repeat]
         for pos in positions_to_remove:
-            mismatches[strand].pop(pos)
+            removed_mismatches[strand][pos] = mismatches[strand].pop(pos)
+            removed_mismatches[strand][pos]['removed'] = 'in simple repeat regions'
         ####################
         # update depth for mismatches
-        positions = list(mismatches[strand].keys())
+        positions = sorted(list(mismatches[strand].keys()))
         for pos in positions:
             nt_seqs = list(mismatches[strand][pos]['depth'].keys())
             for nt in nt_seqs:
@@ -257,7 +321,7 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
                 mismatches[strand][pos]['depth'][nt] = len(mismatches[strand][pos]['nt'][nt])
         ####################
         # Mark SNPs: mark the type of the mismatches as het_snp, snp, or mismatch
-        positions = list(mismatches[strand].keys())
+        positions = sorted(list(mismatches[strand].keys()))
         for pos in positions:
             if pos in snp_positions:
                 t_depth = sum(mismatches[strand][pos]['depth'].values())
@@ -273,7 +337,7 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
             else:
                 pass
     ####################
-    return mismatches
+    return mismatches, removed_mismatches
 
 
 def region_mismatch_analysis(chromosome, start_pos, end_pos,
@@ -289,10 +353,13 @@ def region_mismatch_analysis(chromosome, start_pos, end_pos,
                              read_strand_dict = None,
                              min_het_snp_ratio = 0.35,
                              max_het_snp_ratio = 0.65,
+                             mismatch_window_size = 100,
+                             max_window_mismatch = 10,
+                             max_window_mismatch_type = 3,
                              mode = 'cs',
                              min_common_reads = 5):
 
-    mismatches = get_region_mismatches_with_filters(
+    mismatches, removed_mismatches = get_region_mismatches_with_filters(
         chromosome = chromosome, start_pos = start_pos, end_pos = end_pos,
         sam = sam, genome = genome,
         keep_non_spliced_read = keep_non_spliced_read,
@@ -306,6 +373,9 @@ def region_mismatch_analysis(chromosome, start_pos, end_pos,
         read_strand_dict = read_strand_dict,
         min_het_snp_ratio = min_het_snp_ratio,
         max_het_snp_ratio = max_het_snp_ratio,
+        mismatch_window_size = mismatch_window_size,
+        max_window_mismatch = max_window_mismatch,
+        max_window_mismatch_type = max_window_mismatch_type,
         mode = mode
     )
 
@@ -417,7 +487,20 @@ def region_mismatch_analysis(chromosome, start_pos, end_pos,
                    'ratio', 'allelic_ratio_diff', 'depth', 'A:C:T:G',
                    'up_seq', 'down_seq', 'mean_mi']
     )
-    return df_mismatches, df_mismatch_pair_mi
+
+    df_removed_mismatches = pd.DataFrame.from_records(
+        [
+            [chromosome, '+', pos, removed_mismatches['+'][pos]['removed']]
+            for pos in removed_mismatches['+']
+        ] +
+        [
+            [chromosome, '-', pos, removed_mismatches['-'][pos]['removed']]
+            for pos in removed_mismatches['-']
+        ],
+        columns = ['chromosome', 'strand', 'pos', 'removed']
+    )
+
+    return df_mismatches, df_mismatch_pair_mi, df_removed_mismatches
 
 
 ########################################
