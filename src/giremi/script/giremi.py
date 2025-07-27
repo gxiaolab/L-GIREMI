@@ -6,14 +6,15 @@ import pandas as pd
 import numpy as np
 import multiprocessing as mp
 from functools import partial
+import giremi
 from giremi.footprint import get_footprints
 from giremi.fileio import read_simple_repeat_intervals
 from giremi.fileio import read_snp_positions_in_region
 from giremi.mismatch import region_mismatch_analysis
+from giremi.strand import correct_read_strand_in_region
 from giremi.stat import ecdf
 from giremi.stat import glm_score
 from giremi.stat import score_performance
-from giremi.strand import correct_read_strand_in_region
 
 
 def footprint_bulk_calculation(footprints, variables):
@@ -136,9 +137,7 @@ def run_glm(mmdf, mip_threshold=0.05, model='lm'):
     return glmresult, scorepf
 
 
-if __name__ == '__main__':
-    VMAJOR, VMINOR, VMICRO = 0, 2, 3
-    VERSION = '{}.{}.{}'.format(VMAJOR, VMINOR, VMICRO)
+def parse_args():
     parser = argparse.ArgumentParser(
         description='L-GIREMI (Long-read RNA-seq Genome-independent Identification of RNA Editing by Mutual Information)'
     )
@@ -312,12 +311,18 @@ if __name__ == '__main__':
         default=None,
         required=True
     )
+    VERSION = '0.2.4'
     parser.add_argument(
         '--version',
         action='version',
-        version='%(prog)s {0}'.format(VERSION)
+        version='%(prog)s {0}'.format(giremi.__version__)
     )
     args = parser.parse_args()
+    return args
+
+
+def main():
+    args = parse_args()
 
     variables = {
         'bam_file' : args.bam_file,
@@ -448,4 +453,7 @@ if __name__ == '__main__':
     message = 'All done!'
     logging.info(message)
 
+
+if __name__ == '__main__':
+    main()
 ########################################

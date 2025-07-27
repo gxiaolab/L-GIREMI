@@ -1,0 +1,30 @@
+[project]
+name = 'giremi'
+version='0.2.4'
+description='A software for analysis of RNA editing sites from long-read RNA-seq data'
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    'pysam',
+    'numpy',
+    'pandas',
+    'scikit-learn'
+]
+
+[project.urls]
+Homepage = 'https://github.com/gxiaolab/L-GIREMI'
+Repository = 'https://github.com/gxiaolab/L-GIREMI.git'
+
+[project.scripts]
+
+l-giremi = 'giremi.script.giremi:main'
+calculate_site_splice_mi = 'giremi.script.calculate_site_splice_mi:main'
+correct_splice_site = 'giremi.script.correct_splice_site:main'
+correct_read_strand = 'giremi.script.correct_read_strand:main'
+get_aei = 'giremi.script.get_aei:main'
+get_aei_short = 'giremi.script.get_aei_short:main'
+get_read_intron = 'giremi.script.get_read_intron:main'
+get_read_mismatch = 'giremi.script.get_read_mismatch:main'
+get_read_site = 'giremi.script.get_read_site:main'
+get_read_splice = 'giremi.script.get_read_splice:main'
+split_bam_by_site = 'giremi.script.split_bam_by_site:main'

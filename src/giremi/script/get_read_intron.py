@@ -73,7 +73,7 @@ def chrom_get_read_intron_from_bam(chrom, variables):
     return intron_list
 
 
-if __name__ == '__main__':
+def parse_args():
     parser = argparse.ArgumentParser(
         description="Get read and intron information from bam file"
     )
@@ -115,7 +115,11 @@ if __name__ == '__main__':
         default = 1
     )
     args = parser.parse_args()
+    return args
 
+
+def main():
+    args = parse_args()
     variables = {
         'bam_file': args.bam_file,
         'outprefix': args.output_prefix,
@@ -151,5 +155,9 @@ if __name__ == '__main__':
         outfile.writelines(lines)
 
     outfile.close()
+
+
+if __name__ == '__main__':
+    main()
 
 ####################

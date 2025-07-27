@@ -34,7 +34,7 @@ def footprint_bulk_calculation(footprints, variables):
     return strand_df
 
 
-if __name__ == '__main__':
+def parse_args():
     parser = argparse.ArgumentParser(
         description="Correct read strand."
     )
@@ -107,7 +107,11 @@ if __name__ == '__main__':
         default = 500
     )
     args = parser.parse_args()
+    return args
 
+
+def main():
+    args = parse_args()
     variables = {
         'bam_file' : args.bam_file,
         'genome_file' : args.genome_fasta,
@@ -159,4 +163,7 @@ if __name__ == '__main__':
     message = 'All done!'
     logging.info(message)
 
+
+if __name__ == '__main__':
+    main()
 ########################################

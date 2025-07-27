@@ -1,11 +1,11 @@
 import numpy as np
 import pandas as pd
 from collections import defaultdict
-from .cs import CS
-from .utils import merge_intervals
-from .utils import positions_in_intervals
-from .mutual_information import mismatch_pair_mutual_info
-from .mutual_information import mean_mismatch_pair_mutual_info
+from giremi.cs import CS
+from giremi.utils import merge_intervals
+from giremi.utils import positions_in_intervals
+from giremi.mutual_information import mismatch_pair_mutual_info
+from giremi.mutual_information import mean_mismatch_pair_mutual_info
 
 
 def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
@@ -140,6 +140,7 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
                 if not in_interval
             ]
             for pos, refalt in read_mismatches_rm_splicing:
+                # maybe filter N here
                 mismatches[read_strand][pos]['ref'] = refalt[0].upper()
                 mismatches[read_strand][pos]['nt'][refalt[1].upper()].append(
                     read.query_name
@@ -162,7 +163,8 @@ def get_region_mismatches_with_filters(chromosome, start_pos, end_pos,
         )
         for column in pileup:
             pos = column.pos
-            if pos in positions:
+            ref = mismatches[strand][pos]['ref']
+            if pos in positions and (ref.upper() in nt_pair):
                 ref = mismatches[strand][pos]['ref']
                 raw_read_names = column.get_query_names()
                 raw_read_seqs = [
@@ -415,7 +417,7 @@ def region_mismatch_analysis(chromosome, start_pos, end_pos,
                    'site2_pos', 'site2_type', 'mi']
     )
     mismatch_records = []
-    nt_pair = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
+    nt_pair = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A', 'N': 'N'}
     for strand in ['+', '-']:
         mean_mi_dict = dict(mismatch_mean_mi[strand])
         # calculate regional allelic ratio
@@ -475,11 +477,15 @@ def region_mismatch_analysis(chromosome, start_pos, end_pos,
                 mean_mi = mean_mi_dict[pos]
             else:
                 mean_mi = np.nan
-            mismatch_records.append(
-                [postype, chromosome, strand, pos,
-                 ref_allele, change_type, alt_major_ratio, allelic_ratio_diff,
-                 total_depth, nt_depth, up_nt, down_nt, mean_mi]
-            )
+            if 'N' not in change_type:
+                mismatch_records.append(
+                    [postype, chromosome, strand, pos,
+                     ref_allele, change_type, alt_major_ratio, allelic_ratio_diff,
+                     total_depth, nt_depth, up_nt, down_nt, mean_mi]
+                )
+            else:
+                # skip alter major allele is N
+                pass
 
     df_mismatches = pd.DataFrame.from_records(
         mismatch_records,

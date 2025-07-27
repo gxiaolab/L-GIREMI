@@ -55,13 +55,7 @@ cd L-GIREMI
 Install the package:
 
 ```{bash}
-python setup.py install
-```
-
-#### From pip
-
-```{bash}
-pip install l-giremi
+pip install .
 ```
 
 ### Reference data
@@ -91,19 +85,19 @@ dbSNP chromosome names into UCSC format.
 
 
 ```{bash}
-wget "https://ftp.ncbi.nih.gov/snp/latest_release/VCF/GCF_000001405.38.gz"
+wget "https://ftp.ncbi.nih.gov/snp/latest_release/VCF/GCF_000001405.40.gz"
 
-wget "https://ftp.ncbi.nih.gov/snp/latest_release/VCF/GCF_000001405.38.gz.md5"
+wget "https://ftp.ncbi.nih.gov/snp/latest_release/VCF/GCF_000001405.40.gz.md5"
 
-md5sum -c GCF_000001405.38.gz.md5
+md5sum -c GCF_000001405.40.gz.md5
 
 wget "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.28_GRCh38.p13/GCA_000001405.28_GRCh38.p13_assembly_report.txt"
 
-egrep -v "^#" GCA_000001405.28_GRCh38.p13_assembly_report.txt | cut -f 7,10 | tr "\t" " " > GRCh38-to-hg38.map
+grep -E -v "^#" GCA_000001405.28_GRCh38.p13_assembly_report.txt | cut -f 7,10 | tr "\t" " " > GRCh38-to-hg38.map
 
-bcftools annotate --rename-chrs GRCh38-to-hg38.map GCF_000001405.38.gz -Ob -o dbsnp.38.hg38.bcf
+bcftools annotate --rename-chrs GRCh38-to-hg38.map GCF_000001405.40.gz -Ob -o dbsnp.40.hg38.bcf
 
-bcftools index dbsnp.38.hg38.bcf
+bcftools index dbsnp.40.hg38.bcf
 ```
 
 #### Gene annotation gtf
@@ -116,12 +110,12 @@ should be sorted, zipped, and indexed.
 The following is an example flow to prepare the gtf file:
 
 ```{bash}
-(grep ^"#" gencode.v37.annotation.gtf; \
-    grep -v ^"#" gencode.v37.annotation.gtf | \
+(zgrep ^"#" gencode.v48.annotation.gtf.gz; \
+    zgrep -v ^"#" gencode.v48.annotation.gtf.gz | \
     sort -k1,1 -k4,4n) | \
-    bgzip > gencode.v37.annotation.sorted.gtf.gz
+    bgzip > gencode.v48.annotation.sorted.gtf.gz
 
-tabix -p gff gencode.v37.annotation.sorted.gtf.gz
+tabix -p gff gencode.v48.annotation.sorted.gtf.gz
 ```
 
 #### Simple repeat region table
@@ -131,6 +125,10 @@ A table containing annotated simple repeats is used by L-GIREMI to
 pre-filter sites. It can be obtained from [UCSC table
 browser](http://genome.ucsc.edu/cgi-bin/hgTables). The table format
 should be: chromosome, start, end. No header is needed for the file.
+
+```{bash}
+zcat ucsc_hgtables_simplerepeats.tsv.gz |cut -f 2,3,4 |grep -v chrom > repeats.txt
+```
 
 ## Usage
 

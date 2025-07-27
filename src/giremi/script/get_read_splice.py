@@ -71,7 +71,7 @@ def footprint_bulk_calculation(footprints, variables):
     return splice_list
 
 
-if __name__ == '__main__':
+def parse_args():
     parser = argparse.ArgumentParser(
         description="Get read and splice sites from bam file"
     )
@@ -126,6 +126,11 @@ if __name__ == '__main__':
         choices = ['cs', 'cigar']
     )
     args = parser.parse_args()
+    return args
+
+
+def main():
+    args = parse_args()
 
     # cigar mode requires the genome fasta.
     if args.mode == 'cigar' and len(args.genome_fasta) < 1:
@@ -179,4 +184,7 @@ if __name__ == '__main__':
                 lines = []
         f.writelines(lines)
 
+
+if __name__ == '__main__':
+    main()
 ####################

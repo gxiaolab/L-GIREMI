@@ -1,8 +1,8 @@
 import pysam
 import pandas as pd
 from collections import Counter
-from .cs import CS
-from .utils import positions_in_intervals, merge_intervals
+from giremi.cs import CS
+from giremi.utils import positions_in_intervals, merge_intervals
 
 
 def get_gtf_gene_strand(gtf_gene_list, read_low, read_high, padding = 500):

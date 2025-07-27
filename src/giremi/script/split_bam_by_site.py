@@ -32,7 +32,7 @@ def get_seq_dict(sam, chrom, pos):
 ####################
 
 
-if __name__ == '__main__':
+def parse_args():
     parser = argparse.ArgumentParser(
         description="Save reads that cover one position into separated SAM files by the genomic location"
     )
@@ -58,6 +58,11 @@ if __name__ == '__main__':
         type = int
     )
     args = parser.parse_args()
+    return args
+
+
+def main():
+    args = parse_args()
 
     sam = pysam.AlignmentFile(args.bam_file, 'rb')
     seqdict = get_seq_dict(
@@ -74,4 +79,7 @@ if __name__ == '__main__':
         outfile.close()
     sam.close()
 
+
+if __name__ == '__main__':
+    main()
 ####################

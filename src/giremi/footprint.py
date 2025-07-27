@@ -1,6 +1,6 @@
 # Here, we define the regions that overlapped reads covered as footprints.
 import pysam
-from .utils import merge_intervals
+from giremi.utils import merge_intervals
 
 
 def chr_get_footprints(sam, chromosome, min_read_count = 2):

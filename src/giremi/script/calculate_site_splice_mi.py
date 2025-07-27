@@ -7,7 +7,7 @@ from collections import Counter
 from sklearn.metrics import mutual_info_score
 
 
-if __name__ == '__main__':
+def parse_args():
     parser = argparse.ArgumentParser(
         description = 'calculate the mutual information of mismatch site and splice site pairs'
     )
@@ -28,6 +28,11 @@ if __name__ == '__main__':
         default = 'out'
     )
     args = parser.parse_args()
+    return args
+
+
+def main():
+    args = parse_args()
 
     site_file = args.read_site
     splice_file = args.read_splice
@@ -123,5 +128,9 @@ if __name__ == '__main__':
     pairs.to_csv(
         pair_out_file, sep = '\t', index = False
     )
+
+
+if __name__ == '__main__':
+    main()
 
 ####################

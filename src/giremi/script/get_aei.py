@@ -157,7 +157,7 @@ def alu_df_aei(alu, variables):
 ####################
 
 
-if __name__ == '__main__':
+def parse_args():
     parser = argparse.ArgumentParser(
         description="Calculate AEI from bam file, both in read level and Alu level"
     )
@@ -222,6 +222,9 @@ if __name__ == '__main__':
     )
     args = parser.parse_args()
 
+
+def main():
+    args = parse_args()
     variables = {
         'bam_file': args.bam_file,
         'strand_file': args.strand_file,
@@ -273,5 +276,9 @@ if __name__ == '__main__':
         )
     else:
         pass
+
+
+if __name__ == '__main__':
+    main()
 
 ####################
