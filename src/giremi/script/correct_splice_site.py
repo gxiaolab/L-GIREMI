@@ -52,7 +52,7 @@ def bulk_calculation(chunk, variables):
     return splicing_info_list
 
 
-if __name__ == '__main__':
+def parse_args():
     parser = argparse.ArgumentParser(
         description="Correct splice sites by gtf file"
     )
@@ -101,6 +101,11 @@ if __name__ == '__main__':
         default=10
     )
     args = parser.parse_args()
+    return args
+
+
+def main():
+    args = parse_args()
 
     variables = {
         'gtf_file' : args.annotation_gtf,
@@ -148,5 +153,9 @@ if __name__ == '__main__':
                 f.writelines(lines)
                 lines = []
         f.writelines(lines)
+
+
+if __name__ == '__main__':
+    main()
 
 ####################

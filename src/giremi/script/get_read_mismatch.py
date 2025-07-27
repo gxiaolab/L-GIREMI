@@ -1,12 +1,49 @@
 #! /usr/bin/env python3
+import re
 import pysam
 import argparse
 import pandas as pd
+import numpy as np
 import multiprocessing as mp
 from functools import partial
 
 
-def chrom_get_read_site_from_bam(chrom, variables):
+def split_cs_string(cs_string):
+    return list(
+        zip(
+            re.sub('[0-9a-z]', ' ', cs_string).split(),
+            re.sub('[:*\-+~]', ' ', cs_string).split()
+        )
+    )
+
+
+cslenfuncs = {
+    ':': int,
+    '*': lambda x: 1,
+    '+': lambda x: 0,
+    '-': len,
+    '~': lambda x: int(re.sub('[a-z]', '', x))
+}
+
+
+def cs_to_df(cs_string, pos):
+    cs = split_cs_string(cs_string)
+    cslist = list()
+    for a, b in cs:
+        low = pos
+        pos += cslenfuncs[a](b)
+        high = pos
+        cslist.append([low, high, a, b])
+    csdf = pd.DataFrame(
+        np.row_stack(cslist),
+        columns=['low', 'high', 'ope', 'val']
+    )
+    csdf.loc[:,'low'] = csdf['low'].astype(int)
+    csdf.loc[:,'high'] = csdf['high'].astype(int)
+    return csdf
+
+
+def chrom_get_read_mismatch_from_bam(chrom, variables):
     """
     Obtain mismatch coordinates from the cs tags in the bam file
     """
@@ -16,38 +53,30 @@ def chrom_get_read_site_from_bam(chrom, variables):
     ).drop_duplicates()
     sites.columns = ['chromosome', 'pos']
     sites = sites.loc[sites['chromosome'] == chrom]
-    rs_list = list()
+    aim_pos = sites['pos'].values
+    mm_list = list()
     sam = pysam.AlignmentFile(variables['bam_file'], 'rb')
-    for ri, row in sites.iterrows():
-        for pileupcolumn in sam.pileup(
-                row['chromosome'],
-                row['pos'], row['pos'] + 1,
-                truncate=True
-        ):
-            for read in pileupcolumn.pileups:
-                if read.alignment.mapq < variables['mapq_threshold']:
-                    continue
-                elif read.alignment.is_secondary:
-                    # skip secondary reads
-                    continue
-                if not read.is_del and not read.is_refskip:
-                    read_name = read.alignment.query_name
-                    read_seq = read.alignment.query_sequence[
-                        read.query_position
-                    ]
-                    if len(read_seq) > 0:
-                        rs_list.append(
-                            [read_name,
-                             row['chromosome'],
-                             row['pos'],
-                             read_seq]
-                        )
-    return rs_list
+    for read in sam.fetch(chrom):
+        if read.mapq < variables['mapq_threshold']:
+            continue
+        elif read.is_secondary:
+            # skip secondary reads
+            continue
+        # 0 based
+        pos = read.reference_start
+        cs = cs_to_df(read.get_tag('cs'), pos)
+        cs_mismatch = cs.loc[cs['ope'] == '*']
+        for ri, row in cs_mismatch.iterrows():
+            pos = int(row['low'])
+            REF, ALT = row['val'].upper()
+            if pos in aim_pos:
+                mm_list.append([read.query_name, chrom, pos, REF, ALT])
+    return mm_list
 
 
-if __name__ == '__main__':
+def parse_args():
     parser = argparse.ArgumentParser(
-        description="Get read and site information from bam file"
+        description="Get read and mismatch site information from bam file"
     )
     parser.add_argument(
         "-s", "--site_file",
@@ -94,7 +123,11 @@ if __name__ == '__main__':
         default = 1
     )
     args = parser.parse_args()
+    return args
 
+
+def main():
+    args = parse_args()
     variables = {
         'bam_file': args.bam_file,
         'aim_site_file': args.site_file,
@@ -105,26 +138,35 @@ if __name__ == '__main__':
     with mp.Pool(args.thread) as p:
         results = p.map(
             partial(
-                chrom_get_read_site_from_bam,
+                chrom_get_read_mismatch_from_bam,
                 variables=variables
             ),
             args.chromosomes
         )
 
-    outfile = open('.'.join([variables['outprefix'], 'read_site']), 'w')
+    outfile = open('.'.join([variables['outprefix'], 'read_mismatch']), 'w')
     outfile.write(
         '\t'.join([
-            'read_name', 'chromosome', 'pos', 'seq'
+            'read_name', 'chromosome',
+            'pos', 'ref', 'alt'
         ]) + '\n'
     )
     for chrom_result in results:
         lines = []
-        for r_s in chrom_result:
-            lines.append('\t'.join([str(a) for a in r_s]) + '\n')
+        for r_m in chrom_result:
+            lines.append(
+                '\t'.join([str(a) for a in r_m]) +
+                '\n'
+            )
             if len(lines) > 10000:
                 outfile.writelines(lines)
                 lines = []
         outfile.writelines(lines)
+
     outfile.close()
+
+
+if __name__ == '__main__':
+    main()
 
 ####################
